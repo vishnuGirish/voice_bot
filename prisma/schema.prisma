@@ -1,0 +1,253 @@
+// Digitalize ERP — Prisma schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(STAFF)
+  staff        Staff?
+  createdAt    DateTime @default(now())
+}
+
+// ---------- HRMS ----------
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  ON_LEAVE
+  WORK_FROM_HOME
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Staff {
+  id           String       @id @default(cuid())
+  userId       String?      @unique
+  user         User?        @relation(fields: [userId], references: [id])
+  name         String
+  designation  String
+  department   String
+  email        String       @unique
+  phone        String?
+  joinedAt     DateTime     @default(now())
+  active       Boolean      @default(true)
+  attendances  Attendance[]
+  leaves       Leave[]
+  tasks        Task[]
+  createdAt    DateTime     @default(now())
+}
+
+model Attendance {
+  id        String           @id @default(cuid())
+  staffId   String
+  staff     Staff            @relation(fields: [staffId], references: [id])
+  date      DateTime         @db.Date
+  status    AttendanceStatus @default(PRESENT)
+  checkIn   DateTime?
+  checkOut  DateTime?
+  createdAt DateTime         @default(now())
+
+  @@unique([staffId, date])
+}
+
+model Leave {
+  id        String      @id @default(cuid())
+  staffId   String
+  staff     Staff       @relation(fields: [staffId], references: [id])
+  startDate DateTime    @db.Date
+  endDate   DateTime    @db.Date
+  reason    String
+  status    LeaveStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+}
+
+// ---------- CRM / Sales Pipeline ----------
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+}
+
+model Client {
+  id        String    @id @default(cuid())
+  name      String
+  company   String?
+  email     String?
+  phone     String?
+  notes     String?
+  leads     Lead[]
+  invoices  Invoice[]
+  projects  Project[]
+  createdAt DateTime  @default(now())
+}
+
+model Lead {
+  id         String    @id @default(cuid())
+  clientId   String?
+  client     Client?   @relation(fields: [clientId], references: [id])
+  title      String
+  value      Decimal   @default(0) @db.Decimal(12, 2)
+  stage      LeadStage @default(NEW)
+  ownerName  String?
+  expectedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// ---------- Projects ----------
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+}
+
+model Project {
+  id        String        @id @default(cuid())
+  name      String
+  clientId  String?
+  client    Client?       @relation(fields: [clientId], references: [id])
+  status    ProjectStatus @default(PLANNED)
+  startDate DateTime?     @db.Date
+  dueDate   DateTime?     @db.Date
+  tasks     Task[]
+  createdAt DateTime      @default(now())
+}
+
+model Task {
+  id        String     @id @default(cuid())
+  projectId String
+  project   Project    @relation(fields: [projectId], references: [id])
+  title     String
+  status    TaskStatus @default(TODO)
+  assigneeId String?
+  assignee  Staff?     @relation(fields: [assigneeId], references: [id])
+  dueDate   DateTime?  @db.Date
+  createdAt DateTime   @default(now())
+}
+
+// ---------- Accounting ----------
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  number      String        @unique
+  clientId    String
+  client      Client        @relation(fields: [clientId], references: [id])
+  amount      Decimal       @db.Decimal(12, 2)
+  status      InvoiceStatus @default(DRAFT)
+  issuedAt    DateTime      @default(now())
+  dueAt       DateTime?
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+}
+
+enum ExpenseCategory {
+  RENT
+  SALARY
+  SOFTWARE
+  TRAVEL
+  MARKETING
+  OTHER
+}
+
+model Expense {
+  id        String          @id @default(cuid())
+  title     String
+  category  ExpenseCategory @default(OTHER)
+  amount    Decimal         @db.Decimal(12, 2)
+  incurredAt DateTime       @default(now())
+  createdAt DateTime        @default(now())
+}
+
+// ---------- WAI Assistant ----------
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      String // "user" | "assistant"
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model AssistantToolSetting {
+  toolName  String   @id
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  key       String    @unique
+  label     String
+  revoked   Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  lastUsedAt DateTime?
+}
+
+// ---------- Activity Logs ----------
+
+enum LogCategory {
+  AUTH
+  HRMS
+  CRM
+  PROJECTS
+  ACCOUNTING
+  SYSTEM
+}
+
+model ActivityLog {
+  id          String      @id @default(cuid())
+  actorUserId String?
+  actorName   String
+  category    LogCategory
+  action      String
+  description String
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([category, createdAt])
+  @@index([actorUserId, createdAt])
+}
