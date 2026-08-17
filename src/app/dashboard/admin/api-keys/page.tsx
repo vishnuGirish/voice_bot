@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { createApiKey, revokeApiKey } from "./actions";
@@ -16,7 +17,10 @@ export default async function ApiKeysPage() {
   }
 
   const keys = await prisma.apiKey.findMany({ orderBy: { createdAt: "desc" } });
-  const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const hdrs = await headers();
+  const proto = hdrs.get("x-forwarded-proto") ?? "http";
+  const host = hdrs.get("host") ?? "localhost:3000";
+  const origin = `${proto}://${host}`;
 
   return (
     <div className="space-y-8">
