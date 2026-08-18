@@ -34,7 +34,7 @@ function LoginForm() {
         setError(data.error || "Login failed");
         return;
       }
-      router.push(params.get("next") || "/dashboard");
+      router.push(params.get("next") || "/dashboard/crm");
       router.refresh();
     } finally {
       setLoading(false);
