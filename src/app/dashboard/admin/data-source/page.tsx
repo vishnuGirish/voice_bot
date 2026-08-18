@@ -16,7 +16,7 @@ function maskUrl(url: string) {
 export default async function DataSourcePage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; connected?: string; reason?: string }>;
+  searchParams: Promise<{ error?: string; connected?: string; reason?: string; tablesSaved?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -28,7 +28,7 @@ export default async function DataSourcePage({
     );
   }
 
-  const { error, connected, reason } = await searchParams;
+  const { error, connected, reason, tablesSaved } = await searchParams;
   const org = await prisma.organization.findUnique({ where: { id: session.organizationId } });
   const connectedUrl = org?.dataSourceUrl ?? null;
 
@@ -67,6 +67,12 @@ export default async function DataSourcePage({
       {connected === "1" && (
         <div className="rounded-xl border border-emerald-900 bg-emerald-950/40 p-4 text-sm text-emerald-300">
           Connected. Now pick which tables WAI is allowed to query below.
+        </div>
+      )}
+      {tablesSaved !== undefined && (
+        <div className="rounded-xl border border-emerald-900 bg-emerald-950/40 p-4 text-sm text-emerald-300">
+          Saved. WAI can now query {tablesSaved} table{tablesSaved === "1" ? "" : "s"}
+          {Number(tablesSaved) === 0 ? " — none selected, so WAI has no data to answer from yet." : "."}
         </div>
       )}
 

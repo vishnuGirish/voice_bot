@@ -57,6 +57,7 @@ export async function updateEnabledTables(formData: FormData) {
     organizationId: session.organizationId,
   });
   revalidatePath("/dashboard/admin/data-source");
+  redirect(`/dashboard/admin/data-source?tablesSaved=${tables.length}`);
 }
 
 export async function disconnectDataSource() {
