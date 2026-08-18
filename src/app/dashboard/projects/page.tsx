@@ -3,6 +3,7 @@ import Badge from "@/components/Badge";
 import { addProject, addTask, updateTaskStatus } from "./actions";
 import type { TaskStatus } from "@prisma/client";
 import AutoSubmitSelect from "@/components/AutoSubmitSelect";
+import { requireSession } from "@/lib/auth";
 
 const TASK_STATUSES: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"];
 
@@ -14,13 +15,18 @@ const statusColor: Record<string, "green" | "blue" | "yellow" | "gray"> = {
 };
 
 export default async function ProjectsPage() {
+  const session = await requireSession();
   const [projects, clients, staff] = await Promise.all([
     prisma.project.findMany({
+      where: { organizationId: session.organizationId },
       orderBy: { createdAt: "desc" },
       include: { client: true, tasks: { include: { assignee: true } } },
     }),
-    prisma.client.findMany({ orderBy: { name: "asc" } }),
-    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.client.findMany({ where: { organizationId: session.organizationId }, orderBy: { name: "asc" } }),
+    prisma.staff.findMany({
+      where: { active: true, organizationId: session.organizationId },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   return (

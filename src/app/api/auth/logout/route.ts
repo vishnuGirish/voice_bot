@@ -10,6 +10,7 @@ export async function POST() {
       action: "LOGOUT",
       description: `${session.name} logged out`,
       actor: { userId: session.userId, name: session.name },
+      organizationId: session.organizationId,
     });
   }
   await destroySession();

@@ -6,6 +6,7 @@ import { addInvoice, updateInvoiceStatus, addExpense } from "./actions";
 import type { InvoiceStatus, ExpenseCategory } from "@prisma/client";
 import { Wallet, TrendingDown, TrendingUp } from "lucide-react";
 import AutoSubmitSelect from "@/components/AutoSubmitSelect";
+import { requireSession } from "@/lib/auth";
 
 const INVOICE_STATUSES: InvoiceStatus[] = ["DRAFT", "SENT", "PAID", "OVERDUE"];
 const EXPENSE_CATEGORIES: ExpenseCategory[] = ["RENT", "SALARY", "SOFTWARE", "TRAVEL", "MARKETING", "OTHER"];
@@ -18,13 +19,25 @@ const invoiceColor: Record<string, "gray" | "blue" | "green" | "red"> = {
 };
 
 export default async function AccountingPage() {
+  const session = await requireSession();
   const [invoices, expenses, paidSum, expenseSum] = await Promise.all([
-    prisma.invoice.findMany({ orderBy: { issuedAt: "desc" }, include: { client: true } }),
-    prisma.expense.findMany({ orderBy: { incurredAt: "desc" }, take: 10 }),
-    prisma.invoice.aggregate({ where: { status: "PAID" }, _sum: { amount: true } }),
-    prisma.expense.aggregate({ _sum: { amount: true } }),
+    prisma.invoice.findMany({
+      where: { organizationId: session.organizationId },
+      orderBy: { issuedAt: "desc" },
+      include: { client: true },
+    }),
+    prisma.expense.findMany({
+      where: { organizationId: session.organizationId },
+      orderBy: { incurredAt: "desc" },
+      take: 10,
+    }),
+    prisma.invoice.aggregate({
+      where: { status: "PAID", organizationId: session.organizationId },
+      _sum: { amount: true },
+    }),
+    prisma.expense.aggregate({ where: { organizationId: session.organizationId }, _sum: { amount: true } }),
   ]);
-  const clients = await prisma.client.findMany({ orderBy: { name: "asc" } });
+  const clients = await prisma.client.findMany({ where: { organizationId: session.organizationId }, orderBy: { name: "asc" } });
 
   const revenue = Number(paidSum._sum.amount ?? 0);
   const spend = Number(expenseSum._sum.amount ?? 0);

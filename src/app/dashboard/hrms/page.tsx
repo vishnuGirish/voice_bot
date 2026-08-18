@@ -3,6 +3,7 @@ import DataTable from "@/components/DataTable";
 import Badge from "@/components/Badge";
 import { markAttendance, updateLeaveStatus, addStaff } from "./actions";
 import type { AttendanceStatus } from "@prisma/client";
+import { requireSession } from "@/lib/auth";
 
 function today() {
   const d = new Date();
@@ -21,10 +22,17 @@ const attendanceColor: Record<string, "green" | "red" | "yellow" | "blue" | "gra
 const ATTENDANCE_OPTIONS: AttendanceStatus[] = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "WORK_FROM_HOME"];
 
 export default async function HrmsPage() {
+  const session = await requireSession();
   const [staff, todaysAttendance, leaves] = await Promise.all([
-    prisma.staff.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-    prisma.attendance.findMany({ where: { date: today() } }),
+    prisma.staff.findMany({
+      where: { active: true, organizationId: session.organizationId },
+      orderBy: { name: "asc" },
+    }),
+    prisma.attendance.findMany({
+      where: { date: today(), staff: { organizationId: session.organizationId } },
+    }),
     prisma.leave.findMany({
+      where: { staff: { organizationId: session.organizationId } },
       orderBy: { createdAt: "desc" },
       take: 10,
       include: { staff: true },

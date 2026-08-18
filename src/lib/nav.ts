@@ -9,6 +9,8 @@ import {
   ScrollText,
   ShieldCheck,
   Puzzle,
+  Building,
+  Database,
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,4 +31,6 @@ export const navItems: NavItem[] = [
   { href: "/dashboard/logs", label: "Activity Logs", icon: ScrollText },
   { href: "/dashboard/admin/wai-access", label: "WAI Data Access", icon: ShieldCheck },
   { href: "/dashboard/admin/api-keys", label: "WAI Embed Plugin", icon: Puzzle },
+  { href: "/dashboard/admin/organizations", label: "Organizations", icon: Building },
+  { href: "/dashboard/admin/data-source", label: "WAI Data Source", icon: Database },
 ];

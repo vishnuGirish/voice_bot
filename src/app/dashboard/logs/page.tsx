@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import Badge from "@/components/Badge";
 import type { LogCategory } from "@prisma/client";
+import { requireSession } from "@/lib/auth";
 
 const CATEGORIES: LogCategory[] = ["AUTH", "HRMS", "CRM", "PROJECTS", "ACCOUNTING", "SYSTEM"];
 
@@ -18,10 +19,12 @@ export default async function LogsPage({
 }: {
   searchParams: Promise<{ category?: string; actor?: string }>;
 }) {
+  const session = await requireSession();
   const { category, actor } = await searchParams;
 
   const logs = await prisma.activityLog.findMany({
     where: {
+      organizationId: session.organizationId,
       category: category && CATEGORIES.includes(category as LogCategory) ? (category as LogCategory) : undefined,
       actorName: actor ? { contains: actor, mode: "insensitive" } : undefined,
     },

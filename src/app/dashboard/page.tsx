@@ -1,25 +1,32 @@
 import { prisma } from "@/lib/db";
 import StatCard from "@/components/StatCard";
 import { Users, TrendingUp, Briefcase, Wallet, CalendarCheck, AlertCircle } from "lucide-react";
+import { requireSession } from "@/lib/auth";
 
 export default async function OverviewPage() {
+  const session = await requireSession();
+  const orgId = session.organizationId;
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const [staffCount, presentToday, openLeads, activeProjects, pendingLeaves, invoicesOutstanding] =
     await Promise.all([
-      prisma.staff.count({ where: { active: true } }),
-      prisma.attendance.count({ where: { date: today, status: { in: ["PRESENT", "LATE", "WORK_FROM_HOME"] } } }),
-      prisma.lead.count({ where: { stage: { notIn: ["WON", "LOST"] } } }),
-      prisma.project.count({ where: { status: "ACTIVE" } }),
-      prisma.leave.count({ where: { status: "PENDING" } }),
+      prisma.staff.count({ where: { active: true, organizationId: orgId } }),
+      prisma.attendance.count({
+        where: { date: today, status: { in: ["PRESENT", "LATE", "WORK_FROM_HOME"] }, staff: { organizationId: orgId } },
+      }),
+      prisma.lead.count({ where: { stage: { notIn: ["WON", "LOST"] }, organizationId: orgId } }),
+      prisma.project.count({ where: { status: "ACTIVE", organizationId: orgId } }),
+      prisma.leave.count({ where: { status: "PENDING", staff: { organizationId: orgId } } }),
       prisma.invoice.aggregate({
-        where: { status: { in: ["SENT", "OVERDUE"] } },
+        where: { status: { in: ["SENT", "OVERDUE"] }, organizationId: orgId },
         _sum: { amount: true },
       }),
     ]);
 
   const recentLeads = await prisma.lead.findMany({
+    where: { organizationId: orgId },
     orderBy: { updatedAt: "desc" },
     take: 5,
     include: { client: true },

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSession } from "@/lib/auth";
-import { toolDefinitions, executeTool } from "@/lib/wai/tools";
+import { getToolDefinitionsForOrg, executeTool } from "@/lib/wai/tools";
 import { getEnabledToolNames } from "@/lib/wai/toolRegistry";
-import { validateApiKey } from "@/lib/wai/apiKeys";
+import { resolveApiKeyOrg } from "@/lib/wai/apiKeys";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -26,9 +26,10 @@ function json(body: unknown, init?: { status?: number }) {
 export async function POST(req: NextRequest) {
   const session = await getSession();
   const apiKey = req.headers.get("x-wai-api-key");
-  const authorized = session || (await validateApiKey(apiKey));
+  const keyOrgId = session ? null : await resolveApiKeyOrg(apiKey);
+  const organizationId = session?.organizationId ?? keyOrgId;
 
-  if (!authorized) {
+  if (!organizationId) {
     return json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -42,8 +43,10 @@ export async function POST(req: NextRequest) {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const enabledTools = await getEnabledToolNames();
-  const availableTools = toolDefinitions.filter((t) => enabledTools.has(t.name));
+  const allToolDefs = await getToolDefinitionsForOrg(organizationId);
+  const usingExternalSource = allToolDefs.some((t) => t.name === "query_table");
+  const enabledTools = usingExternalSource ? new Set(["query_table"]) : await getEnabledToolNames();
+  const availableTools = allToolDefs.filter((t) => enabledTools.has(t.name));
 
   const conversation: Anthropic.MessageParam[] = messages.map((m) => ({
     role: m.role,
@@ -86,7 +89,7 @@ export async function POST(req: NextRequest) {
               content: JSON.stringify({ error: "This capability has been disabled by an admin." }),
             };
           }
-          const result = await executeTool(block.name, block.input as Record<string, unknown>);
+          const result = await executeTool(block.name, block.input as Record<string, unknown>, organizationId);
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,

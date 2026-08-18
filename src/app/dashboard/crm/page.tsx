@@ -2,13 +2,19 @@ import { prisma } from "@/lib/db";
 import { addLead, updateLeadStage } from "./actions";
 import type { LeadStage } from "@prisma/client";
 import AutoSubmitSelect from "@/components/AutoSubmitSelect";
+import { requireSession } from "@/lib/auth";
 
 const STAGES: LeadStage[] = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"];
 
 export default async function CrmPage() {
+  const session = await requireSession();
   const [leads, clients] = await Promise.all([
-    prisma.lead.findMany({ orderBy: { updatedAt: "desc" }, include: { client: true } }),
-    prisma.client.findMany({ orderBy: { name: "asc" } }),
+    prisma.lead.findMany({
+      where: { organizationId: session.organizationId },
+      orderBy: { updatedAt: "desc" },
+      include: { client: true },
+    }),
+    prisma.client.findMany({ where: { organizationId: session.organizationId }, orderBy: { name: "asc" } }),
   ]);
 
   const byStage = new Map<LeadStage, typeof leads>();

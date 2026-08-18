@@ -11,6 +11,13 @@ function daysAgo(n: number) {
 }
 
 async function main() {
+  const org = await prisma.organization.upsert({
+    where: { id: "org_digitalize_default" },
+    update: {},
+    create: { id: "org_digitalize_default", name: "Digitalize" },
+  });
+  const organizationId = org.id;
+
   const passwordHash = await bcrypt.hash("admin123", 10);
   await prisma.user.upsert({
     where: { email: "admin@digitalize.app" },
@@ -20,6 +27,7 @@ async function main() {
       email: "admin@digitalize.app",
       passwordHash,
       role: "ADMIN",
+      organizationId,
     },
   });
 
@@ -38,7 +46,7 @@ async function main() {
       await prisma.staff.upsert({
         where: { email: s.email },
         update: {},
-        create: s,
+        create: { ...s, organizationId },
       })
     );
   }
@@ -80,21 +88,22 @@ async function main() {
   ];
   const clients = [];
   for (const c of clientsData) {
-    const existing = await prisma.client.findFirst({ where: { email: c.email } });
-    clients.push(existing ?? (await prisma.client.create({ data: c })));
+    const existing = await prisma.client.findFirst({ where: { email: c.email, organizationId } });
+    clients.push(existing ?? (await prisma.client.create({ data: { ...c, organizationId } })));
   }
 
   await prisma.lead.createMany({
     data: [
-      { clientId: clients[0].id, title: "ERP rollout - Phase 2", value: 450000, stage: "NEGOTIATION", ownerName: "Karthik Raja" },
-      { clientId: clients[1].id, title: "Booking module license", value: 120000, stage: "PROPOSAL", ownerName: "Karthik Raja" },
-      { clientId: clients[2].id, title: "Docs automation add-on", value: 80000, stage: "NEW", ownerName: "Karthik Raja" },
-      { clientId: null, title: "Inbound - website demo request", value: 60000, stage: "CONTACTED", ownerName: "Karthik Raja" },
+      { organizationId, clientId: clients[0].id, title: "ERP rollout - Phase 2", value: 450000, stage: "NEGOTIATION", ownerName: "Karthik Raja" },
+      { organizationId, clientId: clients[1].id, title: "Booking module license", value: 120000, stage: "PROPOSAL", ownerName: "Karthik Raja" },
+      { organizationId, clientId: clients[2].id, title: "Docs automation add-on", value: 80000, stage: "NEW", ownerName: "Karthik Raja" },
+      { organizationId, clientId: null, title: "Inbound - website demo request", value: 60000, stage: "CONTACTED", ownerName: "Karthik Raja" },
     ],
   });
 
   const project = await prisma.project.create({
     data: {
+      organizationId,
       name: "VC Tech Admin Rollout",
       clientId: clients[0].id,
       status: "ACTIVE",
@@ -113,18 +122,18 @@ async function main() {
 
   await prisma.invoice.createMany({
     data: [
-      { number: "INV-1001", clientId: clients[0].id, amount: 150000, status: "PAID", paidAt: daysAgo(10) },
-      { number: "INV-1002", clientId: clients[1].id, amount: 45000, status: "OVERDUE", dueAt: daysAgo(5) },
-      { number: "INV-1003", clientId: clients[2].id, amount: 30000, status: "SENT", dueAt: daysAgo(-10) },
+      { organizationId, number: "INV-1001", clientId: clients[0].id, amount: 150000, status: "PAID", paidAt: daysAgo(10) },
+      { organizationId, number: "INV-1002", clientId: clients[1].id, amount: 45000, status: "OVERDUE", dueAt: daysAgo(5) },
+      { organizationId, number: "INV-1003", clientId: clients[2].id, amount: 30000, status: "SENT", dueAt: daysAgo(-10) },
     ],
     skipDuplicates: true,
   });
 
   await prisma.expense.createMany({
     data: [
-      { title: "Office rent - August", category: "RENT", amount: 60000 },
-      { title: "Team salaries", category: "SALARY", amount: 320000 },
-      { title: "Cloud hosting", category: "SOFTWARE", amount: 15000 },
+      { organizationId, title: "Office rent - August", category: "RENT", amount: 60000 },
+      { organizationId, title: "Team salaries", category: "SALARY", amount: 320000 },
+      { organizationId, title: "Cloud hosting", category: "SOFTWARE", amount: 15000 },
     ],
   });
 

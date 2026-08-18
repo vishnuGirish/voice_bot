@@ -6,6 +6,7 @@ const next = require("next");
 const { WebSocketServer, WebSocket } = require("ws");
 const { PrismaClient } = require("@prisma/client");
 const { jwtVerify } = require("jose");
+const { Pool } = require("pg");
 
 const dev = process.env.NODE_ENV !== "production";
 const port = Number(process.env.PORT) || 3000;
@@ -27,31 +28,62 @@ function parseCookies(header) {
   return out;
 }
 
-async function hasValidSession(req) {
+async function resolveSessionOrg(req) {
   const cookies = parseCookies(req.headers.cookie);
   const token = cookies["digitalize_session"];
-  if (!token) return false;
+  if (!token) return null;
   try {
     const secretKey = new TextEncoder().encode(process.env.AUTH_SECRET || "dev-secret-change-me");
-    await jwtVerify(token, secretKey);
-    return true;
+    const { payload } = await jwtVerify(token, secretKey);
+    return payload.organizationId || null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-async function hasValidApiKey(key) {
-  if (!key) return false;
+async function resolveApiKeyOrg(key) {
+  if (!key) return null;
   const record = await prisma.apiKey.findUnique({ where: { key } });
-  if (!record || record.revoked) return false;
+  if (!record || record.revoked) return null;
   prisma.apiKey.update({ where: { key }, data: { lastUsedAt: new Date() } }).catch(() => {});
-  return true;
+  return record.organizationId;
 }
 
 function startOfDay(dateStr) {
   const d = dateStr ? new Date(dateStr) : new Date();
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+// ---------- External data source (org-connected read-only Postgres) ----------
+
+const externalPoolCache = new Map();
+
+function getExternalPool(connectionUrl) {
+  let pool = externalPoolCache.get(connectionUrl);
+  if (!pool) {
+    pool = new Pool({
+      connectionString: connectionUrl,
+      max: 3,
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      ssl: connectionUrl.includes("sslmode=require") ? { rejectUnauthorized: false } : undefined,
+    });
+    pool.on("error", (err) => console.error("External DB pool error:", err.message));
+    externalPoolCache.set(connectionUrl, pool);
+  }
+  return pool;
+}
+
+function quoteIdentifier(name) {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+async function queryExternalTable(connectionUrl, tableName, limit) {
+  const pool = getExternalPool(connectionUrl);
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const result = await pool.query(`SELECT * FROM ${quoteIdentifier(tableName)} LIMIT $1`, [safeLimit]);
+  return { rowCount: result.rowCount, rows: result.rows };
 }
 
 // ---------- Tool schemas (Deepgram / OpenAI-style function definitions) ----------
@@ -123,14 +155,25 @@ const FUNCTIONS = [
   },
 ];
 
-async function executeTool(name, input) {
+async function executeTool(name, input, organizationId) {
   input = input || {};
   switch (name) {
+    case "query_table": {
+      const org = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { dataSourceUrl: true, enabledTables: true },
+      });
+      const table = String(input.table || "");
+      if (!org || !org.dataSourceUrl || !org.enabledTables.includes(table)) {
+        return { error: "That table isn't accessible." };
+      }
+      return queryExternalTable(org.dataSourceUrl, table, input.limit);
+    }
     case "get_attendance_summary": {
       const date = startOfDay(input.date);
       const [attendance, allStaff] = await Promise.all([
-        prisma.attendance.findMany({ where: { date }, include: { staff: true } }),
-        prisma.staff.findMany({ where: { active: true } }),
+        prisma.attendance.findMany({ where: { date, staff: { organizationId } }, include: { staff: true } }),
+        prisma.staff.findMany({ where: { active: true, organizationId } }),
       ]);
       const recorded = new Set(attendance.map((a) => a.staffId));
       const notRecorded = allStaff.filter((s) => !recorded.has(s.id)).map((s) => s.name);
@@ -147,7 +190,7 @@ async function executeTool(name, input) {
     case "get_staff_on_leave": {
       const date = startOfDay(input.date);
       const leaves = await prisma.leave.findMany({
-        where: { status: "APPROVED", startDate: { lte: date }, endDate: { gte: date } },
+        where: { status: "APPROVED", startDate: { lte: date }, endDate: { gte: date }, staff: { organizationId } },
         include: { staff: true },
       });
       return {
@@ -156,7 +199,10 @@ async function executeTool(name, input) {
       };
     }
     case "get_pending_leave_requests": {
-      const leaves = await prisma.leave.findMany({ where: { status: "PENDING" }, include: { staff: true } });
+      const leaves = await prisma.leave.findMany({
+        where: { status: "PENDING", staff: { organizationId } },
+        include: { staff: true },
+      });
       return {
         pending: leaves.map((l) => ({
           name: l.staff.name,
@@ -167,13 +213,18 @@ async function executeTool(name, input) {
       };
     }
     case "get_sales_pipeline_summary": {
-      const leads = await prisma.lead.groupBy({ by: ["stage"], _count: { _all: true }, _sum: { value: true } });
+      const leads = await prisma.lead.groupBy({
+        by: ["stage"],
+        where: { organizationId },
+        _count: { _all: true },
+        _sum: { value: true },
+      });
       return {
         stages: leads.map((l) => ({ stage: l.stage, count: l._count._all, totalValue: Number(l._sum.value ?? 0) })),
       };
     }
     case "get_project_status_summary": {
-      const projects = await prisma.project.findMany({ include: { tasks: true, client: true } });
+      const projects = await prisma.project.findMany({ where: { organizationId }, include: { tasks: true, client: true } });
       return {
         projects: projects.map((p) => ({
           name: p.name,
@@ -186,7 +237,7 @@ async function executeTool(name, input) {
     }
     case "get_overdue_invoices": {
       const invoices = await prisma.invoice.findMany({
-        where: { status: { in: ["OVERDUE", "SENT"] } },
+        where: { status: { in: ["OVERDUE", "SENT"] }, organizationId },
         include: { client: true },
       });
       return {
@@ -203,6 +254,7 @@ async function executeTool(name, input) {
       const query = String(input.query || "");
       const staff = await prisma.staff.findMany({
         where: {
+          organizationId,
           OR: [
             { name: { contains: query, mode: "insensitive" } },
             { department: { contains: query, mode: "insensitive" } },
@@ -218,6 +270,7 @@ async function executeTool(name, input) {
       const limit = Math.min(Number(input.limit) || 20, 100);
       const logs = await prisma.activityLog.findMany({
         where: {
+          organizationId,
           actorName: input.actorName ? { contains: String(input.actorName), mode: "insensitive" } : undefined,
           category: input.category || undefined,
           createdAt: input.since ? { gte: new Date(String(input.since)) } : undefined,
@@ -246,7 +299,38 @@ async function getEnabledToolNames() {
   return new Set(FUNCTIONS.map((f) => f.name).filter((name) => !disabled.has(name)));
 }
 
-function buildAgentSettings(enabledToolNames) {
+/** Returns the function list + enabled set for this org — swaps in the external `query_table`
+ * function instead of the built-in ERP tools when the org has connected its own database. */
+async function getFunctionsForOrg(organizationId) {
+  const org = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { dataSourceUrl: true, enabledTables: true },
+  });
+
+  if (org && org.dataSourceUrl && org.enabledTables.length > 0) {
+    const functions = [
+      {
+        name: "query_table",
+        description:
+          "Read rows from this organization's connected external database. Only the tables listed in the enum are accessible — nothing else.",
+        parameters: {
+          type: "object",
+          properties: {
+            table: { type: "string", enum: org.enabledTables, description: "Which table to read from" },
+            limit: { type: "number", description: "Max rows to return, default 50, max 200" },
+          },
+          required: ["table"],
+        },
+      },
+    ];
+    return { functions, enabledToolNames: new Set(["query_table"]) };
+  }
+
+  const enabledToolNames = await getEnabledToolNames();
+  return { functions: FUNCTIONS, enabledToolNames };
+}
+
+function buildAgentSettings(functions, enabledToolNames) {
   return {
     type: "Settings",
     audio: {
@@ -258,7 +342,7 @@ function buildAgentSettings(enabledToolNames) {
       listen: { provider: { type: "deepgram", version: "v2", model: "flux-general-en" } },
       think: {
         provider: { type: "google", model: "gemini-3.1-flash-lite" },
-        functions: FUNCTIONS.filter((f) => enabledToolNames.has(f.name)),
+        functions: functions.filter((f) => enabledToolNames.has(f.name)),
         prompt: `#Role
 You are WAI, the AI assistant for the Digitalize ERP, speaking to staff and managers over a live voice call.
 You have real functions available to look up live attendance, leave, sales pipeline, projects, invoices, staff directory and the full activity log — ALWAYS call the relevant function to answer questions about the business. Never guess or invent numbers.
@@ -295,14 +379,14 @@ app.prepare().then(() => {
   server.on("upgrade", async (req, socket, head) => {
     const { pathname, query } = parse(req.url, true);
     if (pathname === "/wai-voice") {
-      const authorized = (await hasValidSession(req)) || (await hasValidApiKey(query.key));
-      if (!authorized) {
+      const organizationId = (await resolveSessionOrg(req)) || (await resolveApiKeyOrg(query.key));
+      if (!organizationId) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
       }
       wss.handleUpgrade(req, socket, head, (client) => {
-        handleVoiceClient(client).catch((err) => {
+        handleVoiceClient(client, organizationId).catch((err) => {
           console.error("Voice client setup error:", err);
           client.close();
         });
@@ -312,7 +396,7 @@ app.prepare().then(() => {
     nextUpgradeHandler(req, socket, head);
   });
 
-  async function handleFunctionCallRequest(msg, upstream, enabledToolNames) {
+  async function handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId) {
     const calls = msg.functions || (msg.function_name ? [msg] : []);
     for (const call of calls) {
       const name = call.name || call.function_name;
@@ -328,7 +412,7 @@ app.prepare().then(() => {
         result = { error: "This capability has been disabled by an admin." };
       } else {
         try {
-          result = await executeTool(name, args);
+          result = await executeTool(name, args, organizationId);
         } catch (err) {
           result = { error: String(err && err.message ? err.message : err) };
         }
@@ -345,7 +429,7 @@ app.prepare().then(() => {
     }
   }
 
-  async function handleVoiceClient(client) {
+  async function handleVoiceClient(client, organizationId) {
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!apiKey) {
       client.send(JSON.stringify({ type: "Error", message: "DEEPGRAM_API_KEY is not configured on the server." }));
@@ -354,7 +438,7 @@ app.prepare().then(() => {
     }
 
     // Snapshot admin-configured access for the lifetime of this call.
-    const enabledToolNames = await getEnabledToolNames();
+    const { functions, enabledToolNames } = await getFunctionsForOrg(organizationId);
 
     const upstream = new WebSocket(DEEPGRAM_AGENT_URL, {
       headers: { Authorization: `token ${apiKey}` },
@@ -362,7 +446,7 @@ app.prepare().then(() => {
 
     let pending = [];
     upstream.on("open", () => {
-      upstream.send(JSON.stringify(buildAgentSettings(enabledToolNames)));
+      upstream.send(JSON.stringify(buildAgentSettings(functions, enabledToolNames)));
       for (const { data, isBinary } of pending) upstream.send(data, { binary: isBinary });
       pending = [];
     });
@@ -384,7 +468,7 @@ app.prepare().then(() => {
           msg = null;
         }
         if (msg && msg.type === "FunctionCallRequest") {
-          handleFunctionCallRequest(msg, upstream, enabledToolNames).catch((err) =>
+          handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId).catch((err) =>
             console.error("Function call handling error:", err)
           );
           return; // don't forward raw function-call plumbing to the browser

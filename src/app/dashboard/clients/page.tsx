@@ -1,9 +1,12 @@
 import { prisma } from "@/lib/db";
 import DataTable from "@/components/DataTable";
 import { addClient } from "./actions";
+import { requireSession } from "@/lib/auth";
 
 export default async function ClientsPage() {
+  const session = await requireSession();
   const clients = await prisma.client.findMany({
+    where: { organizationId: session.organizationId },
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { leads: true, projects: true, invoices: true } } },
   });

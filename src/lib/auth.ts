@@ -10,6 +10,7 @@ export type SessionPayload = {
   email: string;
   name: string;
   role: "ADMIN" | "MANAGER" | "STAFF";
+  organizationId: string;
 };
 
 export async function hashPassword(password: string) {
@@ -52,6 +53,12 @@ export async function getSession(): Promise<SessionPayload | null> {
   } catch {
     return null;
   }
+}
+
+export async function requireSession(): Promise<SessionPayload> {
+  const session = await getSession();
+  if (!session) throw new Error("Not authenticated");
+  return session;
 }
 
 export { SESSION_COOKIE };

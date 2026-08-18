@@ -1,9 +1,12 @@
 import { prisma } from "@/lib/db";
 import DataTable from "@/components/DataTable";
 import Badge from "@/components/Badge";
+import { requireSession } from "@/lib/auth";
 
 export default async function StaffPage() {
+  const session = await requireSession();
   const staff = await prisma.staff.findMany({
+    where: { organizationId: session.organizationId },
     orderBy: { name: "asc" },
     include: { _count: { select: { tasks: true, leaves: true } } },
   });

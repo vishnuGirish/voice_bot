@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     email: user.email,
     name: user.name,
     role: user.role,
+    organizationId: user.organizationId,
   });
 
   await logActivity({
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
     action: "LOGIN",
     description: `${user.name} logged in`,
     actor: { userId: user.id, name: user.name },
+    organizationId: user.organizationId,
   });
 
   return NextResponse.json({ ok: true });

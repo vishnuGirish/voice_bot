@@ -9,6 +9,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Organization {
+  id            String   @id @default(cuid())
+  name          String
+  createdAt     DateTime @default(now())
+  dataSourceUrl String? // optional external Postgres connection string WAI reads from instead of this app's own tables
+  enabledTables String[] @default([]) // allow-list of table names WAI may query in that external database
+  users      User[]
+  staff      Staff[]
+  clients    Client[]
+  leads      Lead[]
+  projects   Project[]
+  invoices   Invoice[]
+  expenses   Expense[]
+  activityLogs ActivityLog[]
+  apiKeys    ApiKey[]
+}
+
 enum Role {
   ADMIN
   MANAGER
@@ -16,13 +33,15 @@ enum Role {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(STAFF)
-  staff        Staff?
-  createdAt    DateTime @default(now())
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  email          String       @unique
+  passwordHash   String
+  role           Role         @default(STAFF)
+  staff          Staff?
+  createdAt      DateTime     @default(now())
 }
 
 // ---------- HRMS ----------
@@ -42,20 +61,24 @@ enum LeaveStatus {
 }
 
 model Staff {
-  id           String       @id @default(cuid())
-  userId       String?      @unique
-  user         User?        @relation(fields: [userId], references: [id])
-  name         String
-  designation  String
-  department   String
-  email        String       @unique
-  phone        String?
-  joinedAt     DateTime     @default(now())
-  active       Boolean      @default(true)
-  attendances  Attendance[]
-  leaves       Leave[]
-  tasks        Task[]
-  createdAt    DateTime     @default(now())
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  userId         String?      @unique
+  user           User?        @relation(fields: [userId], references: [id])
+  name           String
+  designation    String
+  department     String
+  email          String       @unique
+  phone          String?
+  joinedAt       DateTime     @default(now())
+  active         Boolean      @default(true)
+  attendances    Attendance[]
+  leaves         Leave[]
+  tasks          Task[]
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
 }
 
 model Attendance {
@@ -95,29 +118,37 @@ enum LeadStage {
 }
 
 model Client {
-  id        String    @id @default(cuid())
-  name      String
-  company   String?
-  email     String?
-  phone     String?
-  notes     String?
-  leads     Lead[]
-  invoices  Invoice[]
-  projects  Project[]
-  createdAt DateTime  @default(now())
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  company        String?
+  email          String?
+  phone          String?
+  notes          String?
+  leads          Lead[]
+  invoices       Invoice[]
+  projects       Project[]
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
 }
 
 model Lead {
-  id         String    @id @default(cuid())
-  clientId   String?
-  client     Client?   @relation(fields: [clientId], references: [id])
-  title      String
-  value      Decimal   @default(0) @db.Decimal(12, 2)
-  stage      LeadStage @default(NEW)
-  ownerName  String?
-  expectedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  clientId       String?
+  client         Client?      @relation(fields: [clientId], references: [id])
+  title          String
+  value          Decimal      @default(0) @db.Decimal(12, 2)
+  stage          LeadStage    @default(NEW)
+  ownerName      String?
+  expectedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
 }
 
 // ---------- Projects ----------
@@ -137,15 +168,19 @@ enum TaskStatus {
 }
 
 model Project {
-  id        String        @id @default(cuid())
-  name      String
-  clientId  String?
-  client    Client?       @relation(fields: [clientId], references: [id])
-  status    ProjectStatus @default(PLANNED)
-  startDate DateTime?     @db.Date
-  dueDate   DateTime?     @db.Date
-  tasks     Task[]
-  createdAt DateTime      @default(now())
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  name           String
+  clientId       String?
+  client         Client?       @relation(fields: [clientId], references: [id])
+  status         ProjectStatus @default(PLANNED)
+  startDate      DateTime?     @db.Date
+  dueDate        DateTime?     @db.Date
+  tasks          Task[]
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId])
 }
 
 model Task {
@@ -170,16 +205,20 @@ enum InvoiceStatus {
 }
 
 model Invoice {
-  id          String        @id @default(cuid())
-  number      String        @unique
-  clientId    String
-  client      Client        @relation(fields: [clientId], references: [id])
-  amount      Decimal       @db.Decimal(12, 2)
-  status      InvoiceStatus @default(DRAFT)
-  issuedAt    DateTime      @default(now())
-  dueAt       DateTime?
-  paidAt      DateTime?
-  createdAt   DateTime      @default(now())
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  number         String        @unique
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id])
+  amount         Decimal       @db.Decimal(12, 2)
+  status         InvoiceStatus @default(DRAFT)
+  issuedAt       DateTime      @default(now())
+  dueAt          DateTime?
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId])
 }
 
 enum ExpenseCategory {
@@ -192,12 +231,16 @@ enum ExpenseCategory {
 }
 
 model Expense {
-  id        String          @id @default(cuid())
-  title     String
-  category  ExpenseCategory @default(OTHER)
-  amount    Decimal         @db.Decimal(12, 2)
-  incurredAt DateTime       @default(now())
-  createdAt DateTime        @default(now())
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  title          String
+  category       ExpenseCategory @default(OTHER)
+  amount         Decimal         @db.Decimal(12, 2)
+  incurredAt     DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+
+  @@index([organizationId])
 }
 
 // ---------- WAI Assistant ----------
@@ -217,12 +260,16 @@ model AssistantToolSetting {
 }
 
 model ApiKey {
-  id        String    @id @default(cuid())
-  key       String    @unique
-  label     String
-  revoked   Boolean   @default(false)
-  createdAt DateTime  @default(now())
-  lastUsedAt DateTime?
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  key            String       @unique
+  label          String
+  revoked        Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  lastUsedAt     DateTime?
+
+  @@index([organizationId])
 }
 
 // ---------- Activity Logs ----------
@@ -237,17 +284,19 @@ enum LogCategory {
 }
 
 model ActivityLog {
-  id          String      @id @default(cuid())
-  actorUserId String?
-  actorName   String
-  category    LogCategory
-  action      String
-  description String
-  targetType  String?
-  targetId    String?
-  metadata    Json?
-  createdAt   DateTime    @default(now())
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  actorUserId    String?
+  actorName      String
+  category       LogCategory
+  action         String
+  description    String
+  targetType     String?
+  targetId       String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
 
-  @@index([category, createdAt])
+  @@index([organizationId, category, createdAt])
   @@index([actorUserId, createdAt])
 }

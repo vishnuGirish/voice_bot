@@ -10,11 +10,19 @@ export async function logActivity(params: {
   targetId?: string;
   metadata?: Prisma.InputJsonValue;
   actor?: { userId: string; name: string };
+  organizationId?: string;
 }) {
-  const actor = params.actor ?? (await getSession().then((s) => (s ? { userId: s.userId, name: s.name } : null)));
+  const session = params.actor && params.organizationId ? null : await getSession();
+  const actor = params.actor ?? (session ? { userId: session.userId, name: session.name } : null);
+  const organizationId = params.organizationId ?? session?.organizationId;
+
+  if (!organizationId) {
+    throw new Error("logActivity: organizationId is required (pass it explicitly or call within a session).");
+  }
 
   await prisma.activityLog.create({
     data: {
+      organizationId,
       actorUserId: actor?.userId ?? null,
       actorName: actor?.name ?? "System",
       category: params.category,

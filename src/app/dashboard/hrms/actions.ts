@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { AttendanceStatus, LeaveStatus } from "@prisma/client";
 import { logActivity } from "@/lib/activityLog";
+import { requireSession } from "@/lib/auth";
 
 function today() {
   const d = new Date();
@@ -12,7 +13,10 @@ function today() {
 }
 
 export async function markAttendance(staffId: string, status: AttendanceStatus) {
-  const staff = await prisma.staff.findUnique({ where: { id: staffId } });
+  const session = await requireSession();
+  const staff = await prisma.staff.findFirst({ where: { id: staffId, organizationId: session.organizationId } });
+  if (!staff) return;
+
   await prisma.attendance.upsert({
     where: { staffId_date: { staffId, date: today() } },
     update: { status },
@@ -21,16 +25,24 @@ export async function markAttendance(staffId: string, status: AttendanceStatus) 
   await logActivity({
     category: "HRMS",
     action: "ATTENDANCE_MARKED",
-    description: `Marked ${staff?.name ?? staffId} as ${status.replaceAll("_", " ")} for today`,
+    description: `Marked ${staff.name} as ${status.replaceAll("_", " ")} for today`,
     targetType: "Staff",
     targetId: staffId,
     metadata: { status },
+    organizationId: session.organizationId,
   });
   revalidatePath("/dashboard/hrms");
 }
 
 export async function updateLeaveStatus(leaveId: string, status: LeaveStatus) {
-  const leave = await prisma.leave.update({ where: { id: leaveId }, data: { status }, include: { staff: true } });
+  const session = await requireSession();
+  const leave = await prisma.leave.findFirst({
+    where: { id: leaveId, staff: { organizationId: session.organizationId } },
+    include: { staff: true },
+  });
+  if (!leave) return;
+
+  await prisma.leave.update({ where: { id: leaveId }, data: { status } });
   await logActivity({
     category: "HRMS",
     action: "LEAVE_STATUS_UPDATED",
@@ -38,11 +50,13 @@ export async function updateLeaveStatus(leaveId: string, status: LeaveStatus) {
     targetType: "Leave",
     targetId: leaveId,
     metadata: { status },
+    organizationId: session.organizationId,
   });
   revalidatePath("/dashboard/hrms");
 }
 
 export async function addStaff(formData: FormData) {
+  const session = await requireSession();
   const name = String(formData.get("name") || "").trim();
   const designation = String(formData.get("designation") || "").trim();
   const department = String(formData.get("department") || "").trim();
@@ -50,7 +64,7 @@ export async function addStaff(formData: FormData) {
   if (!name || !email) return;
 
   const staff = await prisma.staff.create({
-    data: { name, designation, department, email },
+    data: { name, designation, department, email, organizationId: session.organizationId },
   });
   await logActivity({
     category: "HRMS",
@@ -58,6 +72,7 @@ export async function addStaff(formData: FormData) {
     description: `Added new staff member ${name} (${designation})`,
     targetType: "Staff",
     targetId: staff.id,
+    organizationId: session.organizationId,
   });
   revalidatePath("/dashboard/hrms");
 }
