@@ -22,8 +22,10 @@ export async function connectDataSource(formData: FormData) {
 
   try {
     await testExternalConnection(url);
-  } catch {
-    redirect("/dashboard/admin/data-source?error=connect");
+  } catch (err) {
+    console.error("External data source connection failed:", err instanceof Error ? err.message : err);
+    const reason = err instanceof Error ? encodeURIComponent(err.message) : "";
+    redirect(`/dashboard/admin/data-source?error=connect&reason=${reason}`);
   }
 
   await prisma.organization.update({

@@ -16,7 +16,7 @@ function maskUrl(url: string) {
 export default async function DataSourcePage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; connected?: string }>;
+  searchParams: Promise<{ error?: string; connected?: string; reason?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -28,7 +28,7 @@ export default async function DataSourcePage({
     );
   }
 
-  const { error, connected } = await searchParams;
+  const { error, connected, reason } = await searchParams;
   const org = await prisma.organization.findUnique({ where: { id: session.organizationId } });
   const connectedUrl = org?.dataSourceUrl ?? null;
 
@@ -57,8 +57,11 @@ export default async function DataSourcePage({
 
       {error === "connect" && (
         <div className="rounded-xl border border-red-900 bg-red-950/40 p-4 text-sm text-red-300">
-          Couldn&apos;t connect to that database. Check the connection string and that it&apos;s reachable from this
-          server, then try again.
+          <p>
+            Couldn&apos;t connect to that database. Check the connection string and that it&apos;s reachable from
+            this server, then try again.
+          </p>
+          {reason && <p className="mt-2 font-mono text-xs text-red-400">{reason}</p>}
         </div>
       )}
       {connected === "1" && (
