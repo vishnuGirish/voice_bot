@@ -1,5 +1,4 @@
 import {
-  TrendingUp,
   ScrollText,
   Puzzle,
   Building,
@@ -14,7 +13,6 @@ export type NavItem = {
 };
 
 export const navItems: NavItem[] = [
-  { href: "/dashboard/crm", label: "CRM / Sales", icon: TrendingUp },
   { href: "/dashboard/logs", label: "Activity Logs", icon: ScrollText },
   { href: "/dashboard/admin/api-keys", label: "WAI Embed Plugin", icon: Puzzle },
   { href: "/dashboard/admin/organizations", label: "Organizations", icon: Building },
