@@ -40,25 +40,30 @@ export type TableInfo = {
   columns: { name: string; type: string }[];
 };
 
-/** Lists real base tables + columns in the public schema — used to build the admin's checklist. */
+/** Lists real base tables + columns in the public schema — used to build the admin's checklist.
+ * One joined query instead of one-per-table, so this stays fast even on schemas with hundreds
+ * of tables (e.g. a typical Django/Supabase database). */
 export async function listExternalTables(connectionUrl: string): Promise<TableInfo[]> {
   const pool = getPool(connectionUrl);
-  const tablesResult = await pool.query<{ table_name: string }>(
-    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name`
+  const result = await pool.query<{ table_name: string; column_name: string; data_type: string }>(
+    `SELECT t.table_name, c.column_name, c.data_type
+     FROM information_schema.tables t
+     JOIN information_schema.columns c
+       ON c.table_schema = t.table_schema AND c.table_name = t.table_name
+     WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+     ORDER BY t.table_name, c.ordinal_position`
   );
 
-  const tables: TableInfo[] = [];
-  for (const row of tablesResult.rows) {
-    const colsResult = await pool.query<{ column_name: string; data_type: string }>(
-      `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`,
-      [row.table_name]
-    );
-    tables.push({
-      table: row.table_name,
-      columns: colsResult.rows.map((c) => ({ name: c.column_name, type: c.data_type })),
-    });
+  const byTable = new Map<string, TableInfo>();
+  for (const row of result.rows) {
+    let entry = byTable.get(row.table_name);
+    if (!entry) {
+      entry = { table: row.table_name, columns: [] };
+      byTable.set(row.table_name, entry);
+    }
+    entry.columns.push({ name: row.column_name, type: row.data_type });
   }
-  return tables;
+  return Array.from(byTable.values());
 }
 
 /**
