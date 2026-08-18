@@ -334,27 +334,34 @@ async function getFunctionsForOrg(organizationId) {
         },
       },
     ];
-    return { functions, enabledToolNames: new Set(["query_table"]) };
+    return { functions, enabledToolNames: new Set(["query_table"]), externalTables: org.enabledTables };
   }
 
   const enabledToolNames = await getEnabledToolNames();
-  return { functions: FUNCTIONS, enabledToolNames };
+  return { functions: FUNCTIONS, enabledToolNames, externalTables: null };
 }
 
-function buildAgentSettings(functions, enabledToolNames) {
-  return {
-    type: "Settings",
-    audio: {
-      input: { encoding: "linear16", sample_rate: 48000 },
-      output: { encoding: "linear16", sample_rate: 24000, container: "none" },
-    },
-    agent: {
-      speak: { provider: { type: "deepgram", version: "v2", model: "flux-kit-en" } },
-      listen: { provider: { type: "deepgram", version: "v2", model: "flux-general-en" } },
-      think: {
-        provider: { type: "google", model: "gemini-3.1-flash-lite" },
-        functions: functions.filter((f) => enabledToolNames.has(f.name)),
-        prompt: `#Role
+function agentPrompt(externalTables) {
+  if (externalTables) {
+    return `#Role
+You are WAI, speaking to this organization's staff over a live voice call, answering from their own connected database.
+You have one function, query_table, which reads rows from these tables: ${externalTables.join(", ")}. ALWAYS call it to answer questions about the business — never guess or invent numbers. If a question needs a table that isn't in that list, say plainly it isn't accessible.
+
+#General Guidelines
+-Be warm, friendly, and professional.
+-Speak clearly and naturally in plain language.
+-Keep most responses to 1–2 sentences and under 120 characters unless the caller asks for more detail (max: 300 characters).
+-Do not use markdown formatting.
+-Use varied phrasing; avoid repetition.
+
+#Voice-Specific Instructions
+-Speak in a conversational tone—your responses will be spoken aloud.
+-Pause after questions to allow for replies.
+-Confirm what the caller said if uncertain.
+-Never interrupt.`;
+  }
+
+  return `#Role
 You are WAI, the AI assistant for the Digitalize ERP, speaking to staff and managers over a live voice call.
 You have real functions available to look up live attendance, leave, sales pipeline, projects, invoices, staff directory and the full activity log — ALWAYS call the relevant function to answer questions about the business. Never guess or invent numbers.
 When calling get_attendance_summary or get_staff_on_leave, do NOT guess or pass a "date" argument unless the caller explicitly names a different day (e.g. "yesterday", "last Monday") — omit the argument entirely to get today's real data, since you do not reliably know the current date yourself.
@@ -371,7 +378,23 @@ When calling get_attendance_summary or get_staff_on_leave, do NOT guess or pass 
 -Speak in a conversational tone—your responses will be spoken aloud.
 -Pause after questions to allow for replies.
 -Confirm what the caller said if uncertain.
--Never interrupt.`,
+-Never interrupt.`;
+}
+
+function buildAgentSettings(functions, enabledToolNames, externalTables) {
+  return {
+    type: "Settings",
+    audio: {
+      input: { encoding: "linear16", sample_rate: 48000 },
+      output: { encoding: "linear16", sample_rate: 24000, container: "none" },
+    },
+    agent: {
+      speak: { provider: { type: "deepgram", version: "v2", model: "flux-kit-en" } },
+      listen: { provider: { type: "deepgram", version: "v2", model: "flux-general-en" } },
+      think: {
+        provider: { type: "google", model: "gemini-3.1-flash-lite" },
+        functions: functions.filter((f) => enabledToolNames.has(f.name)),
+        prompt: agentPrompt(externalTables),
       },
       greeting: "Hello! How may I help you?",
     },
@@ -449,7 +472,7 @@ app.prepare().then(() => {
     }
 
     // Snapshot admin-configured access for the lifetime of this call.
-    const { functions, enabledToolNames } = await getFunctionsForOrg(organizationId);
+    const { functions, enabledToolNames, externalTables } = await getFunctionsForOrg(organizationId);
 
     const upstream = new WebSocket(DEEPGRAM_AGENT_URL, {
       headers: { Authorization: `token ${apiKey}` },
@@ -457,7 +480,7 @@ app.prepare().then(() => {
 
     let pending = [];
     upstream.on("open", () => {
-      upstream.send(JSON.stringify(buildAgentSettings(functions, enabledToolNames)));
+      upstream.send(JSON.stringify(buildAgentSettings(functions, enabledToolNames, externalTables)));
       for (const { data, isBinary } of pending) upstream.send(data, { binary: isBinary });
       pending = [];
     });

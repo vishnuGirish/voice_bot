@@ -15,9 +15,15 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
 
-const SYSTEM_PROMPT = `You are WAI, the friendly AI assistant embedded in the Digitalize ERP dashboard.
+const ERP_SYSTEM_PROMPT = `You are WAI, the friendly AI assistant embedded in the Digitalize ERP dashboard.
 You help staff and managers quickly find answers about attendance, leave, sales pipeline, projects, invoices, and the full activity log (audit trail of every action taken in the system) by using the tools available to you — never guess numbers, always call a tool.
 Answer concisely, in the same language the user asked in (including Tamil or Malayalam if they write in those languages). Use short lists or a couple of sentences, not long essays. If a query needs no tool (e.g. greetings), just respond directly. If a question asks about something that isn't tracked by any tool (e.g. lunch breaks, custom fields), say plainly that it isn't tracked yet — never invent an answer.`;
+
+function externalSystemPrompt(enabledTables: string[]) {
+  return `You are WAI, the assistant for this organization, answering questions from their own connected database.
+You have one tool, query_table, which reads rows from these tables: ${enabledTables.join(", ")}. Always call it to answer questions about the business — never guess numbers.
+Answer concisely, in the same language the user asked in. If a question needs a table that isn't in that list, say plainly that it isn't accessible — never invent an answer.`;
+}
 
 function json(body: unknown, init?: { status?: number }) {
   return NextResponse.json(body, { ...init, headers: CORS_HEADERS });
@@ -43,10 +49,10 @@ export async function POST(req: NextRequest) {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const allToolDefs = await getToolDefinitionsForOrg(organizationId);
-  const usingExternalSource = allToolDefs.some((t) => t.name === "query_table");
-  const enabledTools = usingExternalSource ? new Set(["query_table"]) : await getEnabledToolNames();
+  const { tools: allToolDefs, externalTables } = await getToolDefinitionsForOrg(organizationId);
+  const enabledTools = externalTables ? new Set(["query_table"]) : await getEnabledToolNames();
   const availableTools = allToolDefs.filter((t) => enabledTools.has(t.name));
+  const systemPrompt = externalTables ? externalSystemPrompt(externalTables) : ERP_SYSTEM_PROMPT;
 
   const conversation: Anthropic.MessageParam[] = messages.map((m) => ({
     role: m.role,
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest) {
       const response = await client.messages.create({
         model: "claude-sonnet-4-5-20250929",
         max_tokens: 1024,
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
         tools: availableTools,
         messages: conversation,
       });

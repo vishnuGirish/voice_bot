@@ -86,31 +86,36 @@ export const toolDefinitions: Anthropic.Tool[] = [
  * WAI only gets a single read-only `query_table` tool scoped to that org's allow-listed
  * tables — the built-in ERP tools above assume Digitalize's own schema and don't apply.
  */
-export async function getToolDefinitionsForOrg(organizationId: string): Promise<Anthropic.Tool[]> {
+export async function getToolDefinitionsForOrg(
+  organizationId: string
+): Promise<{ tools: Anthropic.Tool[]; externalTables: string[] | null }> {
   const org = await prisma.organization.findUnique({
     where: { id: organizationId },
     select: { dataSourceUrl: true, enabledTables: true },
   });
 
   if (org?.dataSourceUrl && org.enabledTables.length > 0) {
-    return [
-      {
-        name: "query_table",
-        description:
-          "Read rows from this organization's connected external database. Only the tables listed in the enum are accessible — nothing else.",
-        input_schema: {
-          type: "object",
-          properties: {
-            table: { type: "string", enum: org.enabledTables, description: "Which table to read from" },
-            limit: { type: "number", description: "Max rows to return, default 50, max 200" },
+    return {
+      externalTables: org.enabledTables,
+      tools: [
+        {
+          name: "query_table",
+          description:
+            "Read rows from this organization's connected external database. Only the tables listed in the enum are accessible — nothing else.",
+          input_schema: {
+            type: "object",
+            properties: {
+              table: { type: "string", enum: org.enabledTables, description: "Which table to read from" },
+              limit: { type: "number", description: "Max rows to return, default 50, max 200" },
+            },
+            required: ["table"],
           },
-          required: ["table"],
         },
-      },
-    ];
+      ],
+    };
   }
 
-  return toolDefinitions;
+  return { tools: toolDefinitions, externalTables: null };
 }
 
 export async function executeTool(name: string, input: Record<string, unknown>, organizationId: string) {
