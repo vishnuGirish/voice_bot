@@ -198,47 +198,39 @@ export default function WaiVoicePanel({ apiKey }: { apiKey?: string } = {}) {
       {error && <p className="px-4 pb-2 text-center text-[11px] text-red-400">{error}</p>}
 
       <div className="flex flex-col items-center gap-3 pb-6 pt-2">
-        <div
+        <button
+          onClick={active ? undefined : startCall}
+          disabled={connecting || active}
           className={`flex h-16 w-16 items-center justify-center rounded-full border-2 transition-colors ${
             speaking
               ? "border-sky-400 bg-sky-500/20"
               : active
-              ? "border-emerald-400 bg-emerald-500/10"
-              : "border-zinc-700 bg-zinc-900"
+              ? "border-emerald-400 bg-emerald-500/10 cursor-default"
+              : "border-zinc-700 bg-zinc-900 hover:border-sky-500 hover:bg-sky-500/10 disabled:opacity-60"
           }`}
         >
           <span className="text-xs font-semibold text-white">WAI</span>
-        </div>
+        </button>
         <p className="text-[11px] text-zinc-500">
           {connecting ? "Connecting…" : speaking ? "Speaking…" : active ? "Listening…" : "Tap to start"}
         </p>
 
-        <div className="flex items-center gap-3">
-          {active ? (
-            <>
-              <button
-                onClick={toggleMute}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-              >
-                {muted ? <MicOff size={17} /> : <Mic size={17} />}
-              </button>
-              <button
-                onClick={endCall}
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400"
-              >
-                <PhoneOff size={17} />
-              </button>
-            </>
-          ) : (
+        {active && (
+          <div className="flex items-center gap-3">
             <button
-              onClick={startCall}
-              disabled={connecting}
-              className="rounded-full bg-sky-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+              onClick={toggleMute}
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
             >
-              {connecting ? "Connecting…" : "Start voice chat"}
+              {muted ? <MicOff size={17} /> : <Mic size={17} />}
             </button>
-          )}
-        </div>
+            <button
+              onClick={endCall}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400"
+            >
+              <PhoneOff size={17} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
