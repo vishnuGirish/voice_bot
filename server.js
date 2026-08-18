@@ -59,6 +59,17 @@ function startOfDay(dateStr) {
 
 const externalPoolCache = new Map();
 
+function sslConfigFor(connectionUrl) {
+  if (connectionUrl.includes("sslmode=disable")) return undefined;
+  try {
+    const host = new URL(connectionUrl).hostname;
+    if (host === "localhost" || host === "127.0.0.1") return undefined;
+  } catch {
+    // fall through and default to SSL
+  }
+  return { rejectUnauthorized: false };
+}
+
 function getExternalPool(connectionUrl) {
   let pool = externalPoolCache.get(connectionUrl);
   if (!pool) {
@@ -67,7 +78,7 @@ function getExternalPool(connectionUrl) {
       max: 3,
       connectionTimeoutMillis: 5000,
       idleTimeoutMillis: 30000,
-      ssl: connectionUrl.includes("sslmode=require") ? { rejectUnauthorized: false } : undefined,
+      ssl: sslConfigFor(connectionUrl),
     });
     pool.on("error", (err) => console.error("External DB pool error:", err.message));
     externalPoolCache.set(connectionUrl, pool);

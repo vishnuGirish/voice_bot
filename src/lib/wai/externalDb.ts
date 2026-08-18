@@ -2,6 +2,19 @@ import { Pool } from "pg";
 
 const poolCache = new Map<string, Pool>();
 
+function sslConfigFor(connectionUrl: string) {
+  if (connectionUrl.includes("sslmode=disable")) return undefined;
+  try {
+    const host = new URL(connectionUrl).hostname;
+    if (host === "localhost" || host === "127.0.0.1") return undefined;
+  } catch {
+    // fall through and default to SSL
+  }
+  // Most managed Postgres (Supabase, RDS, Render, etc.) requires SSL even
+  // when the pasted connection string doesn't spell out sslmode=require.
+  return { rejectUnauthorized: false };
+}
+
 function getPool(connectionUrl: string) {
   let pool = poolCache.get(connectionUrl);
   if (!pool) {
@@ -10,7 +23,7 @@ function getPool(connectionUrl: string) {
       max: 3,
       connectionTimeoutMillis: 5000,
       idleTimeoutMillis: 30000,
-      ssl: connectionUrl.includes("sslmode=require") ? { rejectUnauthorized: false } : undefined,
+      ssl: sslConfigFor(connectionUrl),
     });
     pool.on("error", (err) => console.error("External DB pool error:", err.message));
     poolCache.set(connectionUrl, pool);
