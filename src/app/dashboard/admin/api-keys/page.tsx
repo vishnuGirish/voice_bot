@@ -30,7 +30,7 @@ export default async function ApiKeysPage() {
       <div>
         <h1 className="text-lg font-semibold text-white">WAI Embed Plugin</h1>
         <p className="max-w-2xl text-sm text-zinc-500">
-          Issue an API key to embed the WAI assistant (chat + voice) into another website. It still answers from
+          Issue an API key to embed the WAI chat assistant into another website. It still answers from
           this Digitalize instance&apos;s data, governed by the same permissions set in{" "}
           <span className="text-zinc-300">WAI Data Access</span>.
         </p>
@@ -80,12 +80,19 @@ export default async function ApiKeysPage() {
               {!k.revoked && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs text-sky-400">Embed snippet</summary>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Paste this once, anywhere on the page (e.g. before <code>&lt;/body&gt;</code>). It draws its
+                    own floating chat bubble — no fixed iframe box to size or place.
+                  </p>
                   <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-950 p-3 text-xs text-zinc-400">
-{`<iframe
-  src="${origin}/embed?key=${k.key}"
-  style="border:none;width:400px;height:600px"
-  allow="microphone"
-></iframe>`}
+{`<script src="${origin}/wai-widget.js" data-key="${k.key}" async></script>`}
+                  </pre>
+                  <p className="mt-3 text-xs text-zinc-500">
+                    To open it from your own button instead of waiting for a click on the bubble:
+                  </p>
+                  <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-950 p-3 text-xs text-zinc-400">
+{`<button onclick="WAI.open()">Chat with us</button>
+<!-- also available: WAI.close(), WAI.toggle() -->`}
                   </pre>
                 </details>
               )}
