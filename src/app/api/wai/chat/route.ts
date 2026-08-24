@@ -42,6 +42,17 @@ export async function POST(req: NextRequest) {
 
   let organizationId: string | null = session?.organizationId ?? null;
 
+  if (!organizationId && !apiKey && requestedOrgId) {
+    // No API key at all — the caller (a trusted backend) is identifying the organization by ID
+    // alone. There is no secret gate here beyond knowing a real organizationId; only wire this
+    // path up to systems you trust, since anyone who can guess/enumerate an org's ID can use it.
+    const org = await prisma.organization.findUnique({ where: { id: requestedOrgId }, select: { id: true } });
+    if (!org) {
+      return json({ error: "Unknown organizationId." }, { status: 400 });
+    }
+    organizationId = org.id;
+  }
+
   if (!organizationId) {
     const access = session ? null : await resolveApiKeyAccess(apiKey);
     if (!access) {
