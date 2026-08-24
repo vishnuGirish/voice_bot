@@ -43,8 +43,9 @@ export async function POST(req: NextRequest) {
     return json({ error: "ANTHROPIC_API_KEY is not configured on the server." }, { status: 500 });
   }
 
-  const { messages } = (await req.json()) as {
+  const { messages, userId } = (await req.json()) as {
     messages: { role: "user" | "assistant"; content: string }[];
+    userId?: string;
   };
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
               content: JSON.stringify({ error: "This capability has been disabled by an admin." }),
             };
           }
-          const result = await executeTool(block.name, block.input as Record<string, unknown>, organizationId);
+          const result = await executeTool(block.name, block.input as Record<string, unknown>, organizationId, userId);
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,

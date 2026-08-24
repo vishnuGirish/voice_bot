@@ -12,6 +12,7 @@ const SCRIPT = String.raw`
     console.error("WAI widget: missing data-key attribute on the script tag.");
     return;
   }
+  var userId = current.getAttribute("data-user-id");
   var origin = new URL(current.src).origin;
 
   var panel = document.createElement("div");
@@ -22,8 +23,10 @@ const SCRIPT = String.raw`
     "display:none", "background:#09090b",
   ].join(";");
 
+  var iframeSrc = origin + "/embed?key=" + encodeURIComponent(key);
+  if (userId) iframeSrc += "&userId=" + encodeURIComponent(userId);
   var iframe = document.createElement("iframe");
-  iframe.src = origin + "/embed?key=" + encodeURIComponent(key);
+  iframe.src = iframeSrc;
   iframe.style.cssText = "border:none;width:100%;height:100%;";
   iframe.allow = "microphone";
   panel.appendChild(iframe);

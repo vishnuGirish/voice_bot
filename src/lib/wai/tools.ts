@@ -118,16 +118,32 @@ export async function getToolDefinitionsForOrg(
   return { tools: toolDefinitions, externalTables: null };
 }
 
-export async function executeTool(name: string, input: Record<string, unknown>, organizationId: string) {
+export async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  organizationId: string,
+  userId?: string
+) {
   switch (name) {
     case "query_table": {
       const org = await prisma.organization.findUnique({
         where: { id: organizationId },
-        select: { dataSourceUrl: true, enabledTables: true },
+        select: { dataSourceUrl: true, enabledTables: true, userScopeColumns: true },
       });
       const table = String(input.table ?? "");
       if (!org?.dataSourceUrl || !org.enabledTables.includes(table)) {
         return { error: "That table isn't accessible." };
+      }
+      const scopeMap = (org.userScopeColumns as Record<string, string[]>) ?? {};
+      const scopeColumns = scopeMap[table] ?? [];
+      if (scopeColumns.length > 0) {
+        if (!userId) {
+          return { error: "This table requires a userId to be passed with the request." };
+        }
+        return queryExternalTable(org.dataSourceUrl, table, Number(input.limit) || 50, {
+          columns: scopeColumns,
+          userId,
+        });
       }
       return queryExternalTable(org.dataSourceUrl, table, Number(input.limit) || 50);
     }

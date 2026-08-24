@@ -90,9 +90,20 @@ function quoteIdentifier(name) {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-async function queryExternalTable(connectionUrl, tableName, limit) {
+async function queryExternalTable(connectionUrl, tableName, limit, scope) {
   const pool = getExternalPool(connectionUrl);
   const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+
+  if (scope && scope.columns.length > 0) {
+    const whereClause = scope.columns.map((col, i) => `${quoteIdentifier(col)} = $${i + 1}`).join(" OR ");
+    const params = [...scope.columns.map(() => scope.userId), safeLimit];
+    const result = await pool.query(
+      `SELECT * FROM ${quoteIdentifier(tableName)} WHERE ${whereClause} LIMIT $${scope.columns.length + 1}`,
+      params
+    );
+    return { rowCount: result.rowCount, rows: result.rows };
+  }
+
   const result = await pool.query(`SELECT * FROM ${quoteIdentifier(tableName)} LIMIT $1`, [safeLimit]);
   return { rowCount: result.rowCount, rows: result.rows };
 }
@@ -166,17 +177,24 @@ const FUNCTIONS = [
   },
 ];
 
-async function executeTool(name, input, organizationId) {
+async function executeTool(name, input, organizationId, userId) {
   input = input || {};
   switch (name) {
     case "query_table": {
       const org = await prisma.organization.findUnique({
         where: { id: organizationId },
-        select: { dataSourceUrl: true, enabledTables: true },
+        select: { dataSourceUrl: true, enabledTables: true, userScopeColumns: true },
       });
       const table = String(input.table || "");
       if (!org || !org.dataSourceUrl || !org.enabledTables.includes(table)) {
         return { error: "That table isn't accessible." };
+      }
+      const scopeColumns = (org.userScopeColumns || {})[table] || [];
+      if (scopeColumns.length > 0) {
+        if (!userId) {
+          return { error: "This table requires a userId to be passed with the request." };
+        }
+        return queryExternalTable(org.dataSourceUrl, table, input.limit, { columns: scopeColumns, userId });
       }
       return queryExternalTable(org.dataSourceUrl, table, input.limit);
     }
@@ -419,8 +437,9 @@ app.prepare().then(() => {
         socket.destroy();
         return;
       }
+      const userId = typeof query.userId === "string" ? query.userId : undefined;
       wss.handleUpgrade(req, socket, head, (client) => {
-        handleVoiceClient(client, organizationId).catch((err) => {
+        handleVoiceClient(client, organizationId, userId).catch((err) => {
           console.error("Voice client setup error:", err);
           client.close();
         });
@@ -430,7 +449,7 @@ app.prepare().then(() => {
     nextUpgradeHandler(req, socket, head);
   });
 
-  async function handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId) {
+  async function handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId, userId) {
     const calls = msg.functions || (msg.function_name ? [msg] : []);
     for (const call of calls) {
       const name = call.name || call.function_name;
@@ -446,7 +465,7 @@ app.prepare().then(() => {
         result = { error: "This capability has been disabled by an admin." };
       } else {
         try {
-          result = await executeTool(name, args, organizationId);
+          result = await executeTool(name, args, organizationId, userId);
         } catch (err) {
           result = { error: String(err && err.message ? err.message : err) };
         }
@@ -463,7 +482,7 @@ app.prepare().then(() => {
     }
   }
 
-  async function handleVoiceClient(client, organizationId) {
+  async function handleVoiceClient(client, organizationId, userId) {
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!apiKey) {
       client.send(JSON.stringify({ type: "Error", message: "DEEPGRAM_API_KEY is not configured on the server." }));
@@ -502,7 +521,7 @@ app.prepare().then(() => {
           msg = null;
         }
         if (msg && msg.type === "FunctionCallRequest") {
-          handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId).catch((err) =>
+          handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId, userId).catch((err) =>
             console.error("Function call handling error:", err)
           );
           return; // don't forward raw function-call plumbing to the browser

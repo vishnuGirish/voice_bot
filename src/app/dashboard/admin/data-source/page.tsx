@@ -43,6 +43,7 @@ export default async function DataSourcePage({
   }
 
   const enabledSet = new Set(org?.enabledTables ?? []);
+  const scopeMap = (org?.userScopeColumns as Record<string, string[]> | undefined) ?? {};
 
   return (
     <div className="space-y-8">
@@ -95,27 +96,49 @@ export default async function DataSourcePage({
             </div>
           ) : (
             <form action={updateEnabledTables} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-              <p className="mb-3 text-sm font-medium text-zinc-300">
+              <p className="mb-1 text-sm font-medium text-zinc-300">
                 Tables WAI may read ({tables.length} found)
               </p>
-              <div className="max-h-96 space-y-2 overflow-y-auto">
+              <p className="mb-3 text-xs text-zinc-500">
+                For any table with a user column, you can require every request to include a{" "}
+                <code className="rounded bg-zinc-950 px-1 py-0.5 text-zinc-400">userId</code> and only return that
+                user&apos;s rows — leave unchecked to let WAI read every row in the table.
+              </p>
+              <div className="max-h-[32rem] space-y-2 overflow-y-auto">
                 {tables.length === 0 && <p className="text-sm text-zinc-500">No tables found in the public schema.</p>}
                 {tables.map((t) => (
-                  <label key={t.table} className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
-                    <input
-                      type="checkbox"
-                      name="tables"
-                      value={t.table}
-                      defaultChecked={enabledSet.has(t.table)}
-                      className="mt-1"
-                    />
-                    <div>
-                      <p className="text-sm text-zinc-200">{t.table}</p>
-                      <p className="text-xs text-zinc-500">
-                        {t.columns.map((c) => c.name).join(", ")}
-                      </p>
-                    </div>
-                  </label>
+                  <div key={t.table} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        name="tables"
+                        value={t.table}
+                        defaultChecked={enabledSet.has(t.table)}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="text-sm text-zinc-200">{t.table}</p>
+                        <p className="text-xs text-zinc-500">
+                          {t.columns.map((c) => c.name).join(", ")}
+                        </p>
+                      </div>
+                    </label>
+                    {t.userColumns.length > 0 && (
+                      <div className="ml-6 mt-2 flex flex-wrap gap-3 border-t border-zinc-800 pt-2">
+                        <span className="text-[11px] uppercase tracking-wide text-zinc-600">Scope by:</span>
+                        {t.userColumns.map((col) => (
+                          <label key={col} className="flex items-center gap-1.5 text-xs text-zinc-400">
+                            <input
+                              type="checkbox"
+                              name={`scope:${t.table}:${col}`}
+                              defaultChecked={(scopeMap[t.table] ?? []).includes(col)}
+                            />
+                            {col}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
               <button className="mt-3 rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-white hover:bg-sky-400">

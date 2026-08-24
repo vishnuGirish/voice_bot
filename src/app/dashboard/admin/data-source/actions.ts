@@ -30,7 +30,7 @@ export async function connectDataSource(formData: FormData) {
 
   await prisma.organization.update({
     where: { id: session.organizationId },
-    data: { dataSourceUrl: url, enabledTables: [] },
+    data: { dataSourceUrl: url, enabledTables: [], userScopeColumns: {} },
   });
   await logActivity({
     category: "SYSTEM",
@@ -45,15 +45,29 @@ export async function connectDataSource(formData: FormData) {
 export async function updateEnabledTables(formData: FormData) {
   const session = await requireAdmin();
   const tables = formData.getAll("tables").map(String);
+  const tableSet = new Set(tables);
+
+  // Checkboxes are named "scope:<table>:<column>" — collect the ones that were checked into
+  // { table: [column, ...] }, dropping any for a table that ended up unchecked above.
+  const userScopeColumns: Record<string, string[]> = {};
+  for (const key of formData.keys()) {
+    if (!key.startsWith("scope:")) continue;
+    const [, table, column] = key.split(":");
+    if (!table || !column || !tableSet.has(table)) continue;
+    (userScopeColumns[table] ??= []).push(column);
+  }
 
   await prisma.organization.update({
     where: { id: session.organizationId },
-    data: { enabledTables: tables },
+    data: { enabledTables: tables, userScopeColumns },
   });
+  const scopedCount = Object.keys(userScopeColumns).length;
   await logActivity({
     category: "SYSTEM",
     action: "DATA_SOURCE_TABLES_UPDATED",
-    description: `WAI can now query: ${tables.join(", ") || "(none)"}`,
+    description: `WAI can now query: ${tables.join(", ") || "(none)"}${
+      scopedCount ? `; user-scoped: ${Object.entries(userScopeColumns).map(([t, c]) => `${t} (${c.join("/")})`).join(", ")}` : ""
+    }`,
     organizationId: session.organizationId,
   });
   revalidatePath("/dashboard/admin/data-source");
@@ -64,7 +78,7 @@ export async function disconnectDataSource() {
   const session = await requireAdmin();
   await prisma.organization.update({
     where: { id: session.organizationId },
-    data: { dataSourceUrl: null, enabledTables: [] },
+    data: { dataSourceUrl: null, enabledTables: [], userScopeColumns: {} },
   });
   await logActivity({
     category: "SYSTEM",

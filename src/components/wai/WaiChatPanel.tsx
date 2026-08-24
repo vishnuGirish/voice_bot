@@ -13,8 +13,8 @@ const QUICK_ASKS = [
   "Any overdue invoices?",
 ];
 
-export default function WaiChatPanel({ apiKey }: { apiKey?: string } = {}) {
-  const { messages, sending, send } = useWaiChat(apiKey);
+export default function WaiChatPanel({ apiKey, userId }: { apiKey?: string; userId?: string } = {}) {
+  const { messages, sending, send } = useWaiChat(apiKey, userId);
   const [input, setInput] = useState("");
 
   async function submit(text: string) {

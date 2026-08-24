@@ -3,7 +3,7 @@
 import { Sparkles } from "lucide-react";
 import WaiChatPanel from "./WaiChatPanel";
 
-export default function WaiEmbedWidget({ apiKey }: { apiKey: string }) {
+export default function WaiEmbedWidget({ apiKey, userId }: { apiKey: string; userId?: string }) {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
       <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
@@ -17,7 +17,7 @@ export default function WaiEmbedWidget({ apiKey }: { apiKey: string }) {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        <WaiChatPanel apiKey={apiKey} />
+        <WaiChatPanel apiKey={apiKey} userId={userId} />
       </div>
     </div>
   );

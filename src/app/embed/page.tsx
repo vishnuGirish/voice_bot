@@ -4,9 +4,9 @@ import WaiEmbedWidget from "@/components/wai/WaiEmbedWidget";
 export default async function EmbedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ key?: string }>;
+  searchParams: Promise<{ key?: string; userId?: string }>;
 }) {
-  const { key } = await searchParams;
+  const { key, userId } = await searchParams;
 
   const record = key ? await prisma.apiKey.findUnique({ where: { key } }) : null;
   const valid = record && !record.revoked;
@@ -19,5 +19,5 @@ export default async function EmbedPage({
     );
   }
 
-  return <WaiEmbedWidget apiKey={key!} />;
+  return <WaiEmbedWidget apiKey={key!} userId={userId} />;
 }
