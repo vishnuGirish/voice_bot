@@ -14,17 +14,23 @@ async function requireAdmin() {
   return session;
 }
 
+// Platform keys let the caller pick which organization's data to use per request instead of
+// being locked to one — only the platform's own root org can issue them, since anyone holding
+// one can read any organization in the system by ID.
+const ROOT_ORGANIZATION_ID = "org_digitalize_default";
+
 export async function createApiKey(formData: FormData) {
   const session = await requireAdmin();
   const label = String(formData.get("label") || "").trim();
   if (!label) return;
+  const isPlatformKey = formData.get("isPlatformKey") === "on" && session.organizationId === ROOT_ORGANIZATION_ID;
 
   const key = generateApiKey();
-  await prisma.apiKey.create({ data: { key, label, organizationId: session.organizationId } });
+  await prisma.apiKey.create({ data: { key, label, organizationId: session.organizationId, isPlatformKey } });
   await logActivity({
     category: "SYSTEM",
     action: "API_KEY_CREATED",
-    description: `Created embed API key "${label}"`,
+    description: `Created ${isPlatformKey ? "platform-wide " : ""}embed API key "${label}"`,
     targetType: "ApiKey",
     organizationId: session.organizationId,
   });

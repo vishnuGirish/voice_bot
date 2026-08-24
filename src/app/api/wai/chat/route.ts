@@ -3,7 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getSession } from "@/lib/auth";
 import { getToolDefinitionsForOrg, executeTool } from "@/lib/wai/tools";
 import { getEnabledToolNames } from "@/lib/wai/toolRegistry";
-import { resolveApiKeyOrg } from "@/lib/wai/apiKeys";
+import { resolveApiKeyAccess } from "@/lib/wai/apiKeys";
+import { prisma } from "@/lib/db";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,21 +33,37 @@ function json(body: unknown, init?: { status?: number }) {
 export async function POST(req: NextRequest) {
   const session = await getSession();
   const apiKey = req.headers.get("x-wai-api-key");
-  const keyOrgId = session ? null : await resolveApiKeyOrg(apiKey);
-  const organizationId = session?.organizationId ?? keyOrgId;
+
+  const { messages, userId, organizationId: requestedOrgId } = (await req.json()) as {
+    messages: { role: "user" | "assistant"; content: string }[];
+    userId?: string;
+    organizationId?: string;
+  };
+
+  let organizationId: string | null = session?.organizationId ?? null;
 
   if (!organizationId) {
-    return json({ error: "Unauthorized" }, { status: 401 });
+    const access = session ? null : await resolveApiKeyAccess(apiKey);
+    if (!access) {
+      return json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (access.isPlatformKey) {
+      if (!requestedOrgId) {
+        return json({ error: "organizationId is required when calling with this API key." }, { status: 400 });
+      }
+      const org = await prisma.organization.findUnique({ where: { id: requestedOrgId }, select: { id: true } });
+      if (!org) {
+        return json({ error: "Unknown organizationId." }, { status: 400 });
+      }
+      organizationId = org.id;
+    } else {
+      organizationId = access.organizationId;
+    }
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return json({ error: "ANTHROPIC_API_KEY is not configured on the server." }, { status: 500 });
   }
-
-  const { messages, userId } = (await req.json()) as {
-    messages: { role: "user" | "assistant"; content: string }[];
-    userId?: string;
-  };
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 

@@ -262,11 +262,12 @@ model AssistantToolSetting {
 
 model ApiKey {
   id             String       @id @default(cuid())
-  organizationId String
+  organizationId String // the org that issued/owns this key for attribution — irrelevant to access when isPlatformKey is true
   organization   Organization @relation(fields: [organizationId], references: [id])
   key            String       @unique
   label          String
   revoked        Boolean      @default(false)
+  isPlatformKey  Boolean      @default(false) // if true, the caller must pass organizationId with each request instead of being locked to `organizationId` above
   createdAt      DateTime     @default(now())
   lastUsedAt     DateTime?
 
