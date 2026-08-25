@@ -85,6 +85,10 @@ export default async function OrganizationsPage() {
               <p className="mt-1 text-xs text-zinc-500">
                 Logins: {org.users.map((u) => u.email).join(", ") || "none"}
               </p>
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500">
+                <span>organizationId:</span>
+                <code className="rounded bg-zinc-950 px-1.5 py-0.5 text-zinc-400">{org.id}</code>
+              </p>
             </div>
           ))}
         </div>
