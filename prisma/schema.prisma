@@ -16,6 +16,7 @@ model Organization {
   dataSourceUrl String? // optional external Postgres connection string WAI reads from instead of this app's own tables
   enabledTables String[] @default([]) // allow-list of table names WAI may query in that external database
   userScopeColumns Json @default("{}") // { tableName: string[] } — columns that must match the caller's userId for that table to be readable at all
+  companyScopeColumns Json @default("{}") // { tableName: string[] } — same idea, matched against the caller's companyId
   users      User[]
   staff      Staff[]
   clients    Client[]

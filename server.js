@@ -90,15 +90,25 @@ function quoteIdentifier(name) {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-async function queryExternalTable(connectionUrl, tableName, limit, scope) {
+async function queryExternalTable(connectionUrl, tableName, limit, scopeGroups) {
   const pool = getExternalPool(connectionUrl);
   const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
 
-  if (scope && scope.columns.length > 0) {
-    const whereClause = scope.columns.map((col, i) => `${quoteIdentifier(col)} = $${i + 1}`).join(" OR ");
-    const params = [...scope.columns.map(() => scope.userId), safeLimit];
+  const groups = (scopeGroups || []).filter((g) => g.columns.length > 0);
+  if (groups.length > 0) {
+    const params = [];
+    const clauses = groups.map((group) => {
+      const inner = group.columns
+        .map((col) => {
+          params.push(group.value);
+          return `${quoteIdentifier(col)} = $${params.length}`;
+        })
+        .join(" OR ");
+      return `(${inner})`;
+    });
+    params.push(safeLimit);
     const result = await pool.query(
-      `SELECT * FROM ${quoteIdentifier(tableName)} WHERE ${whereClause} LIMIT $${scope.columns.length + 1}`,
+      `SELECT * FROM ${quoteIdentifier(tableName)} WHERE ${clauses.join(" AND ")} LIMIT $${params.length}`,
       params
     );
     return { rowCount: result.rowCount, rows: result.rows };
@@ -177,26 +187,34 @@ const FUNCTIONS = [
   },
 ];
 
-async function executeTool(name, input, organizationId, userId) {
+async function executeTool(name, input, organizationId, userId, companyId) {
   input = input || {};
   switch (name) {
     case "query_table": {
       const org = await prisma.organization.findUnique({
         where: { id: organizationId },
-        select: { dataSourceUrl: true, enabledTables: true, userScopeColumns: true },
+        select: { dataSourceUrl: true, enabledTables: true, userScopeColumns: true, companyScopeColumns: true },
       });
       const table = String(input.table || "");
       if (!org || !org.dataSourceUrl || !org.enabledTables.includes(table)) {
         return { error: "That table isn't accessible." };
       }
-      const scopeColumns = (org.userScopeColumns || {})[table] || [];
-      if (scopeColumns.length > 0) {
-        if (!userId) {
-          return { error: "This table requires a userId to be passed with the request." };
-        }
-        return queryExternalTable(org.dataSourceUrl, table, input.limit, { columns: scopeColumns, userId });
+
+      const userColumns = (org.userScopeColumns || {})[table] || [];
+      const companyColumns = (org.companyScopeColumns || {})[table] || [];
+
+      const missing = [];
+      if (userColumns.length > 0 && !userId) missing.push("userId");
+      if (companyColumns.length > 0 && !companyId) missing.push("companyId");
+      if (missing.length > 0) {
+        return { error: `This table requires ${missing.join(" and ")} to be passed with the request.` };
       }
-      return queryExternalTable(org.dataSourceUrl, table, input.limit);
+
+      const scopeGroups = [];
+      if (userColumns.length > 0 && userId) scopeGroups.push({ columns: userColumns, value: userId });
+      if (companyColumns.length > 0 && companyId) scopeGroups.push({ columns: companyColumns, value: companyId });
+
+      return queryExternalTable(org.dataSourceUrl, table, input.limit, scopeGroups);
     }
     case "get_attendance_summary": {
       const date = startOfDay(input.date);
@@ -438,8 +456,9 @@ app.prepare().then(() => {
         return;
       }
       const userId = typeof query.userId === "string" ? query.userId : undefined;
+      const companyId = typeof query.companyId === "string" ? query.companyId : undefined;
       wss.handleUpgrade(req, socket, head, (client) => {
-        handleVoiceClient(client, organizationId, userId).catch((err) => {
+        handleVoiceClient(client, organizationId, userId, companyId).catch((err) => {
           console.error("Voice client setup error:", err);
           client.close();
         });
@@ -449,7 +468,7 @@ app.prepare().then(() => {
     nextUpgradeHandler(req, socket, head);
   });
 
-  async function handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId, userId) {
+  async function handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId, userId, companyId) {
     const calls = msg.functions || (msg.function_name ? [msg] : []);
     for (const call of calls) {
       const name = call.name || call.function_name;
@@ -465,7 +484,7 @@ app.prepare().then(() => {
         result = { error: "This capability has been disabled by an admin." };
       } else {
         try {
-          result = await executeTool(name, args, organizationId, userId);
+          result = await executeTool(name, args, organizationId, userId, companyId);
         } catch (err) {
           result = { error: String(err && err.message ? err.message : err) };
         }
@@ -482,7 +501,7 @@ app.prepare().then(() => {
     }
   }
 
-  async function handleVoiceClient(client, organizationId, userId) {
+  async function handleVoiceClient(client, organizationId, userId, companyId) {
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!apiKey) {
       client.send(JSON.stringify({ type: "Error", message: "DEEPGRAM_API_KEY is not configured on the server." }));
@@ -521,7 +540,7 @@ app.prepare().then(() => {
           msg = null;
         }
         if (msg && msg.type === "FunctionCallRequest") {
-          handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId, userId).catch((err) =>
+          handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId, userId, companyId).catch((err) =>
             console.error("Function call handling error:", err)
           );
           return; // don't forward raw function-call plumbing to the browser

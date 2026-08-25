@@ -7,10 +7,12 @@ export default function WaiEmbedWidget({
   apiKey,
   organizationId,
   userId,
+  companyId,
 }: {
   apiKey?: string;
   organizationId?: string;
   userId?: string;
+  companyId?: string;
 }) {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
@@ -25,7 +27,7 @@ export default function WaiEmbedWidget({
       </div>
 
       <div className="flex-1 overflow-hidden">
-        <WaiChatPanel apiKey={apiKey} userId={userId} organizationId={organizationId} />
+        <WaiChatPanel apiKey={apiKey} userId={userId} companyId={companyId} organizationId={organizationId} />
       </div>
     </div>
   );

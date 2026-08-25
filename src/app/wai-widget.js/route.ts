@@ -13,6 +13,7 @@ const SCRIPT = String.raw`
     return;
   }
   var userId = current.getAttribute("data-user-id");
+  var companyId = current.getAttribute("data-company-id");
   var origin = new URL(current.src).origin;
 
   var panel = document.createElement("div");
@@ -25,6 +26,7 @@ const SCRIPT = String.raw`
 
   var iframeSrc = origin + "/embed?key=" + encodeURIComponent(key);
   if (userId) iframeSrc += "&userId=" + encodeURIComponent(userId);
+  if (companyId) iframeSrc += "&companyId=" + encodeURIComponent(companyId);
   var iframe = document.createElement("iframe");
   iframe.src = iframeSrc;
   iframe.style.cssText = "border:none;width:100%;height:100%;";

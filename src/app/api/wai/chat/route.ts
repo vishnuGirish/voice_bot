@@ -34,9 +34,10 @@ export async function POST(req: NextRequest) {
   const session = await getSession();
   const apiKey = req.headers.get("x-wai-api-key");
 
-  const { messages, userId, organizationId: requestedOrgId } = (await req.json()) as {
+  const { messages, userId, companyId, organizationId: requestedOrgId } = (await req.json()) as {
     messages: { role: "user" | "assistant"; content: string }[];
     userId?: string;
+    companyId?: string;
     organizationId?: string;
   };
 
@@ -124,7 +125,7 @@ export async function POST(req: NextRequest) {
               content: JSON.stringify({ error: "This capability has been disabled by an admin." }),
             };
           }
-          const result = await executeTool(block.name, block.input as Record<string, unknown>, organizationId, userId);
+          const result = await executeTool(block.name, block.input as Record<string, unknown>, organizationId, userId, companyId);
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,

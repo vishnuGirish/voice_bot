@@ -16,9 +16,10 @@ const QUICK_ASKS = [
 export default function WaiChatPanel({
   apiKey,
   userId,
+  companyId,
   organizationId,
-}: { apiKey?: string; userId?: string; organizationId?: string } = {}) {
-  const { messages, sending, send } = useWaiChat(apiKey, userId, organizationId);
+}: { apiKey?: string; userId?: string; companyId?: string; organizationId?: string } = {}) {
+  const { messages, sending, send } = useWaiChat({ apiKey, userId, companyId, organizationId });
   const [input, setInput] = useState("");
 
   async function submit(text: string) {

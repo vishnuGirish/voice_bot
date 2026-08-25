@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import type Anthropic from "@anthropic-ai/sdk";
-import { queryExternalTable } from "./externalDb";
+import { queryExternalTable, type ScopeGroup } from "./externalDb";
 
 function startOfDay(dateStr?: string) {
   const d = dateStr ? new Date(dateStr) : new Date();
@@ -122,30 +122,35 @@ export async function executeTool(
   name: string,
   input: Record<string, unknown>,
   organizationId: string,
-  userId?: string
+  userId?: string,
+  companyId?: string
 ) {
   switch (name) {
     case "query_table": {
       const org = await prisma.organization.findUnique({
         where: { id: organizationId },
-        select: { dataSourceUrl: true, enabledTables: true, userScopeColumns: true },
+        select: { dataSourceUrl: true, enabledTables: true, userScopeColumns: true, companyScopeColumns: true },
       });
       const table = String(input.table ?? "");
       if (!org?.dataSourceUrl || !org.enabledTables.includes(table)) {
         return { error: "That table isn't accessible." };
       }
-      const scopeMap = (org.userScopeColumns as Record<string, string[]>) ?? {};
-      const scopeColumns = scopeMap[table] ?? [];
-      if (scopeColumns.length > 0) {
-        if (!userId) {
-          return { error: "This table requires a userId to be passed with the request." };
-        }
-        return queryExternalTable(org.dataSourceUrl, table, Number(input.limit) || 50, {
-          columns: scopeColumns,
-          userId,
-        });
+
+      const userColumns = ((org.userScopeColumns as Record<string, string[]>) ?? {})[table] ?? [];
+      const companyColumns = ((org.companyScopeColumns as Record<string, string[]>) ?? {})[table] ?? [];
+
+      const missing: string[] = [];
+      if (userColumns.length > 0 && !userId) missing.push("userId");
+      if (companyColumns.length > 0 && !companyId) missing.push("companyId");
+      if (missing.length > 0) {
+        return { error: `This table requires ${missing.join(" and ")} to be passed with the request.` };
       }
-      return queryExternalTable(org.dataSourceUrl, table, Number(input.limit) || 50);
+
+      const scopeGroups: ScopeGroup[] = [];
+      if (userColumns.length > 0 && userId) scopeGroups.push({ columns: userColumns, value: userId });
+      if (companyColumns.length > 0 && companyId) scopeGroups.push({ columns: companyColumns, value: companyId });
+
+      return queryExternalTable(org.dataSourceUrl, table, Number(input.limit) || 50, scopeGroups);
     }
     case "get_attendance_summary": {
       const date = startOfDay(input.date as string | undefined);

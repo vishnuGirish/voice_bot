@@ -4,9 +4,9 @@ import WaiEmbedWidget from "@/components/wai/WaiEmbedWidget";
 export default async function EmbedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ key?: string; organizationId?: string; userId?: string }>;
+  searchParams: Promise<{ key?: string; organizationId?: string; userId?: string; companyId?: string }>;
 }) {
-  const { key, organizationId, userId } = await searchParams;
+  const { key, organizationId, userId, companyId } = await searchParams;
 
   if (key) {
     const record = await prisma.apiKey.findUnique({ where: { key } });
@@ -17,7 +17,7 @@ export default async function EmbedPage({
         </div>
       );
     }
-    return <WaiEmbedWidget apiKey={key} userId={userId} />;
+    return <WaiEmbedWidget apiKey={key} userId={userId} companyId={companyId} />;
   }
 
   if (organizationId) {
@@ -29,7 +29,7 @@ export default async function EmbedPage({
         </div>
       );
     }
-    return <WaiEmbedWidget organizationId={org.id} userId={userId} />;
+    return <WaiEmbedWidget organizationId={org.id} userId={userId} companyId={companyId} />;
   }
 
   return (

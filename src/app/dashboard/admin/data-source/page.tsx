@@ -43,7 +43,8 @@ export default async function DataSourcePage({
   }
 
   const enabledSet = new Set(org?.enabledTables ?? []);
-  const scopeMap = (org?.userScopeColumns as Record<string, string[]> | undefined) ?? {};
+  const userScopeMap = (org?.userScopeColumns as Record<string, string[]> | undefined) ?? {};
+  const companyScopeMap = (org?.companyScopeColumns as Record<string, string[]> | undefined) ?? {};
 
   return (
     <div className="space-y-8">
@@ -100,9 +101,10 @@ export default async function DataSourcePage({
                 Tables WAI may read ({tables.length} found)
               </p>
               <p className="mb-3 text-xs text-zinc-500">
-                For any table with a user column, you can require every request to include a{" "}
-                <code className="rounded bg-zinc-950 px-1 py-0.5 text-zinc-400">userId</code> and only return that
-                user&apos;s rows — leave unchecked to let WAI read every row in the table.
+                For any table with a user or company column, you can require every request to include a{" "}
+                <code className="rounded bg-zinc-950 px-1 py-0.5 text-zinc-400">userId</code> and/or{" "}
+                <code className="rounded bg-zinc-950 px-1 py-0.5 text-zinc-400">companyId</code> and only return
+                matching rows — leave unchecked to let WAI read every row in the table.
               </p>
               <div className="max-h-[32rem] space-y-2 overflow-y-auto">
                 {tables.length === 0 && <p className="text-sm text-zinc-500">No tables found in the public schema.</p>}
@@ -125,13 +127,28 @@ export default async function DataSourcePage({
                     </label>
                     {t.userColumns.length > 0 && (
                       <div className="ml-6 mt-2 flex flex-wrap gap-3 border-t border-zinc-800 pt-2">
-                        <span className="text-[11px] uppercase tracking-wide text-zinc-600">Scope by:</span>
+                        <span className="text-[11px] uppercase tracking-wide text-zinc-600">Scope by user:</span>
                         {t.userColumns.map((col) => (
                           <label key={col} className="flex items-center gap-1.5 text-xs text-zinc-400">
                             <input
                               type="checkbox"
                               name={`scope:${t.table}:${col}`}
-                              defaultChecked={(scopeMap[t.table] ?? []).includes(col)}
+                              defaultChecked={(userScopeMap[t.table] ?? []).includes(col)}
+                            />
+                            {col}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    {t.companyColumns.length > 0 && (
+                      <div className="ml-6 mt-2 flex flex-wrap gap-3 border-t border-zinc-800 pt-2">
+                        <span className="text-[11px] uppercase tracking-wide text-zinc-600">Scope by company:</span>
+                        {t.companyColumns.map((col) => (
+                          <label key={col} className="flex items-center gap-1.5 text-xs text-zinc-400">
+                            <input
+                              type="checkbox"
+                              name={`cscope:${t.table}:${col}`}
+                              defaultChecked={(companyScopeMap[t.table] ?? []).includes(col)}
                             />
                             {col}
                           </label>

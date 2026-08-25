@@ -30,7 +30,7 @@ export async function connectDataSource(formData: FormData) {
 
   await prisma.organization.update({
     where: { id: session.organizationId },
-    data: { dataSourceUrl: url, enabledTables: [], userScopeColumns: {} },
+    data: { dataSourceUrl: url, enabledTables: [], userScopeColumns: {}, companyScopeColumns: {} },
   });
   await logActivity({
     category: "SYSTEM",
@@ -47,26 +47,36 @@ export async function updateEnabledTables(formData: FormData) {
   const tables = formData.getAll("tables").map(String);
   const tableSet = new Set(tables);
 
-  // Checkboxes are named "scope:<table>:<column>" — collect the ones that were checked into
-  // { table: [column, ...] }, dropping any for a table that ended up unchecked above.
+  // Checkboxes are named "scope:<table>:<column>" (user) or "cscope:<table>:<column>" (company) —
+  // collect the ones that were checked into { table: [column, ...] } per dimension, dropping any
+  // for a table that ended up unchecked above.
   const userScopeColumns: Record<string, string[]> = {};
+  const companyScopeColumns: Record<string, string[]> = {};
   for (const key of formData.keys()) {
-    if (!key.startsWith("scope:")) continue;
+    const isUserScope = key.startsWith("scope:");
+    const isCompanyScope = key.startsWith("cscope:");
+    if (!isUserScope && !isCompanyScope) continue;
     const [, table, column] = key.split(":");
     if (!table || !column || !tableSet.has(table)) continue;
-    (userScopeColumns[table] ??= []).push(column);
+    const target = isUserScope ? userScopeColumns : companyScopeColumns;
+    (target[table] ??= []).push(column);
   }
 
   await prisma.organization.update({
     where: { id: session.organizationId },
-    data: { enabledTables: tables, userScopeColumns },
+    data: { enabledTables: tables, userScopeColumns, companyScopeColumns },
   });
-  const scopedCount = Object.keys(userScopeColumns).length;
+  const describeScopes = (map: Record<string, string[]>) =>
+    Object.entries(map).map(([t, c]) => `${t} (${c.join("/")})`).join(", ");
+  const scopeSummary = [
+    Object.keys(userScopeColumns).length ? `user-scoped: ${describeScopes(userScopeColumns)}` : null,
+    Object.keys(companyScopeColumns).length ? `company-scoped: ${describeScopes(companyScopeColumns)}` : null,
+  ].filter(Boolean);
   await logActivity({
     category: "SYSTEM",
     action: "DATA_SOURCE_TABLES_UPDATED",
     description: `WAI can now query: ${tables.join(", ") || "(none)"}${
-      scopedCount ? `; user-scoped: ${Object.entries(userScopeColumns).map(([t, c]) => `${t} (${c.join("/")})`).join(", ")}` : ""
+      scopeSummary.length ? `; ${scopeSummary.join("; ")}` : ""
     }`,
     organizationId: session.organizationId,
   });
@@ -78,7 +88,7 @@ export async function disconnectDataSource() {
   const session = await requireAdmin();
   await prisma.organization.update({
     where: { id: session.organizationId },
-    data: { dataSourceUrl: null, enabledTables: [], userScopeColumns: {} },
+    data: { dataSourceUrl: null, enabledTables: [], userScopeColumns: {}, companyScopeColumns: {} },
   });
   await logActivity({
     category: "SYSTEM",
