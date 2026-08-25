@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 
 export type ChatMsg = { role: "user" | "assistant"; content: string };
 
-export function useWaiChat(apiKey?: string, userId?: string) {
+export function useWaiChat(apiKey?: string, userId?: string, organizationId?: string) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [sending, setSending] = useState(false);
 
@@ -20,7 +20,7 @@ export function useWaiChat(apiKey?: string, userId?: string) {
             "Content-Type": "application/json",
             ...(apiKey ? { "X-WAI-Api-Key": apiKey } : {}),
           },
-          body: JSON.stringify({ messages: next, userId }),
+          body: JSON.stringify({ messages: next, userId, organizationId }),
         });
         const data = await res.json();
         const reply: string = res.ok
@@ -32,7 +32,7 @@ export function useWaiChat(apiKey?: string, userId?: string) {
         setSending(false);
       }
     },
-    [messages, apiKey, userId]
+    [messages, apiKey, userId, organizationId]
   );
 
   return { messages, sending, send };
