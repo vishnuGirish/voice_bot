@@ -4,9 +4,16 @@ import WaiEmbedWidget from "@/components/wai/WaiEmbedWidget";
 export default async function EmbedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ key?: string; organizationId?: string; userId?: string; companyId?: string }>;
+  searchParams: Promise<{
+    key?: string;
+    organizationId?: string;
+    userId?: string;
+    companyId?: string;
+    mode?: string;
+  }>;
 }) {
-  const { key, organizationId, userId, companyId } = await searchParams;
+  const { key, organizationId, userId, companyId, mode } = await searchParams;
+  const panelMode = mode === "voice" ? "voice" : "chat";
 
   if (key) {
     const record = await prisma.apiKey.findUnique({ where: { key } });
@@ -17,7 +24,7 @@ export default async function EmbedPage({
         </div>
       );
     }
-    return <WaiEmbedWidget apiKey={key} userId={userId} companyId={companyId} />;
+    return <WaiEmbedWidget apiKey={key} userId={userId} companyId={companyId} mode={panelMode} />;
   }
 
   if (organizationId) {
@@ -29,7 +36,7 @@ export default async function EmbedPage({
         </div>
       );
     }
-    return <WaiEmbedWidget organizationId={org.id} userId={userId} companyId={companyId} />;
+    return <WaiEmbedWidget organizationId={org.id} userId={userId} companyId={companyId} mode={panelMode} />;
   }
 
   return (

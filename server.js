@@ -449,7 +449,13 @@ app.prepare().then(() => {
   server.on("upgrade", async (req, socket, head) => {
     const { pathname, query } = parse(req.url, true);
     if (pathname === "/wai-voice") {
-      const organizationId = (await resolveSessionOrg(req)) || (await resolveApiKeyOrg(query.key));
+      let organizationId = (await resolveSessionOrg(req)) || (await resolveApiKeyOrg(query.key));
+      if (!organizationId && !query.key && typeof query.organizationId === "string") {
+        // No API key at all — same keyless mode as POST /api/wai/chat: identifying the
+        // organization by ID alone. Only meant for calls you trust, same caveat as there.
+        const org = await prisma.organization.findUnique({ where: { id: query.organizationId }, select: { id: true } });
+        if (org) organizationId = org.id;
+      }
       if (!organizationId) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();

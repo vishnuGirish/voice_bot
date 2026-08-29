@@ -12,7 +12,17 @@ const OUTPUT_SAMPLE_RATE = 24000;
 
 type Bubble = { role: "user" | "assistant"; content: string };
 
-export default function WaiVoicePanel({ apiKey }: { apiKey?: string } = {}) {
+export default function WaiVoicePanel({
+  apiKey,
+  organizationId,
+  userId,
+  companyId,
+}: {
+  apiKey?: string;
+  organizationId?: string;
+  userId?: string;
+  companyId?: string;
+} = {}) {
   const [messages, setMessages] = useState<Bubble[]>([]);
   const [active, setActive] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -101,7 +111,12 @@ export default function WaiVoicePanel({ apiKey }: { apiKey?: string } = {}) {
       nextPlayTimeRef.current = 0;
 
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const query = apiKey ? `?key=${encodeURIComponent(apiKey)}` : "";
+      const params = new URLSearchParams();
+      if (apiKey) params.set("key", apiKey);
+      if (organizationId) params.set("organizationId", organizationId);
+      if (userId) params.set("userId", userId);
+      if (companyId) params.set("companyId", companyId);
+      const query = params.toString() ? `?${params.toString()}` : "";
       const ws = new WebSocket(`${proto}://${location.host}/wai-voice${query}`);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;

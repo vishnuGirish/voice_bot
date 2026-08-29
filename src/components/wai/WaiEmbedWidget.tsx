@@ -2,17 +2,20 @@
 
 import { Sparkles } from "lucide-react";
 import WaiChatPanel from "./WaiChatPanel";
+import WaiVoicePanel from "./WaiVoicePanel";
 
 export default function WaiEmbedWidget({
   apiKey,
   organizationId,
   userId,
   companyId,
+  mode = "chat",
 }: {
   apiKey?: string;
   organizationId?: string;
   userId?: string;
   companyId?: string;
+  mode?: "chat" | "voice";
 }) {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
@@ -27,7 +30,11 @@ export default function WaiEmbedWidget({
       </div>
 
       <div className="flex-1 overflow-hidden">
-        <WaiChatPanel apiKey={apiKey} userId={userId} companyId={companyId} organizationId={organizationId} />
+        {mode === "voice" ? (
+          <WaiVoicePanel apiKey={apiKey} organizationId={organizationId} userId={userId} companyId={companyId} />
+        ) : (
+          <WaiChatPanel apiKey={apiKey} userId={userId} companyId={companyId} organizationId={organizationId} />
+        )}
       </div>
     </div>
   );
