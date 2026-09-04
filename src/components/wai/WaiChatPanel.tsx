@@ -4,15 +4,6 @@ import { useState } from "react";
 import { Send } from "lucide-react";
 import { useWaiChat } from "@/lib/wai/useWaiChat";
 
-const QUICK_ASKS = [
-  "Who came in today?",
-  "Who hasn't submitted their work report?",
-  "Who is on leave today?",
-  "Who is working right now?",
-  "What's in the sales pipeline?",
-  "Any overdue invoices?",
-];
-
 export default function WaiChatPanel({
   apiKey,
   userId,
@@ -33,22 +24,9 @@ export default function WaiChatPanel({
     <div className="flex h-full flex-col">
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {messages.length === 0 && (
-          <div className="space-y-3">
-            <p className="text-sm text-zinc-300">
-              Hello — how can I help? Ask about attendance, tasks, leads, projects, or who&apos;s working right now.
-            </p>
-            <div className="grid grid-cols-1 gap-2">
-              {QUICK_ASKS.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => submit(q)}
-                  className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-left text-xs text-zinc-300 hover:border-sky-500/50 hover:bg-zinc-900"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
+          <p className="text-sm text-zinc-300">
+            Hello — how can I help? Ask me anything about your data.
+          </p>
         )}
 
         {messages.map((m, i) => (

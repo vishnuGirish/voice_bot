@@ -42,7 +42,7 @@ export default function Sidebar() {
 
       <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs text-zinc-500">
         Ask <span className="font-medium text-sky-400">WAI</span> anything about
-        your team, sales, projects or finances — bottom right.
+        your connected data — bottom right.
       </div>
     </aside>
   );

@@ -51,9 +51,8 @@ export default async function DataSourcePage({
       <div>
         <h1 className="text-lg font-semibold text-white">WAI Data Source</h1>
         <p className="max-w-2xl text-sm text-zinc-500">
-          By default WAI answers from this organization&apos;s own Digitalize data (HRMS, CRM, Projects,
-          Accounting). Connect a different Postgres database here to have WAI answer from that instead — read-only,
-          and only from tables you explicitly allow below.
+          WAI only ever answers from a Postgres database you connect here — read-only, and only from tables you
+          explicitly allow below. Until one is connected, WAI has nothing to answer from.
         </p>
       </div>
 

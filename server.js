@@ -49,12 +49,6 @@ async function resolveApiKeyOrg(key) {
   return record.organizationId;
 }
 
-function startOfDay(dateStr) {
-  const d = dateStr ? new Date(dateStr) : new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 // ---------- External data source (org-connected read-only Postgres) ----------
 
 const externalPoolCache = new Map();
@@ -118,268 +112,90 @@ async function queryExternalTable(connectionUrl, tableName, limit, scopeGroups) 
   return { rowCount: result.rowCount, rows: result.rows };
 }
 
-// ---------- Tool schemas (Deepgram / OpenAI-style function definitions) ----------
-
-const FUNCTIONS = [
-  {
-    name: "get_attendance_summary",
-    description:
-      "Get today's (or a given date's) attendance summary: who is present, absent, late, on leave or working from home.",
-    parameters: {
-      type: "object",
-      properties: { date: { type: "string", description: "ISO date, defaults to today" } },
-    },
-  },
-  {
-    name: "get_staff_on_leave",
-    description: "List staff who are on approved leave today or on a given date.",
-    parameters: {
-      type: "object",
-      properties: { date: { type: "string", description: "ISO date, defaults to today" } },
-    },
-  },
-  {
-    name: "get_pending_leave_requests",
-    description: "List leave requests that are still pending approval.",
-    parameters: { type: "object", properties: {} },
-  },
-  {
-    name: "get_sales_pipeline_summary",
-    description: "Summarize the CRM sales pipeline: number and value of leads per stage.",
-    parameters: { type: "object", properties: {} },
-  },
-  {
-    name: "get_project_status_summary",
-    description: "Summarize active projects and their task progress.",
-    parameters: { type: "object", properties: {} },
-  },
-  {
-    name: "get_overdue_invoices",
-    description: "List invoices that are overdue or unpaid, with client and amount.",
-    parameters: { type: "object", properties: {} },
-  },
-  {
-    name: "search_staff",
-    description: "Search staff directory by name, department or designation.",
-    parameters: {
-      type: "object",
-      properties: { query: { type: "string", description: "Search text" } },
-      required: ["query"],
-    },
-  },
-  {
-    name: "search_activity_logs",
-    description:
-      "Search the audit trail of every action taken in the system — logins, attendance changes, leave decisions, leads, tasks, invoices, expenses, new staff/clients.",
-    parameters: {
-      type: "object",
-      properties: {
-        actorName: { type: "string", description: "Filter by the person who performed the action" },
-        category: {
-          type: "string",
-          enum: ["AUTH", "HRMS", "CRM", "PROJECTS", "ACCOUNTING", "SYSTEM"],
-          description: "Filter by module category",
-        },
-        since: { type: "string", description: "ISO date/time — only logs after this time" },
-        limit: { type: "number", description: "Max results, default 20, max 100" },
-      },
-    },
-  },
-];
+// ---------- Tool schema (Deepgram / OpenAI-style function definition) ----------
+// WAI only ever answers from an org's connected external database — there is no built-in
+// fallback. query_table is the single function it gets, scoped to that org's allow-listed tables.
 
 async function executeTool(name, input, organizationId, userId, companyId) {
   input = input || {};
-  switch (name) {
-    case "query_table": {
-      const org = await prisma.organization.findUnique({
-        where: { id: organizationId },
-        select: { dataSourceUrl: true, enabledTables: true, userScopeColumns: true, companyScopeColumns: true },
-      });
-      const table = String(input.table || "");
-      if (!org || !org.dataSourceUrl || !org.enabledTables.includes(table)) {
-        return { error: "That table isn't accessible." };
-      }
-
-      const userColumns = (org.userScopeColumns || {})[table] || [];
-      const companyColumns = (org.companyScopeColumns || {})[table] || [];
-
-      const missing = [];
-      if (userColumns.length > 0 && !userId) missing.push("userId");
-      if (companyColumns.length > 0 && !companyId) missing.push("companyId");
-      if (missing.length > 0) {
-        return { error: `This table requires ${missing.join(" and ")} to be passed with the request.` };
-      }
-
-      const scopeGroups = [];
-      if (userColumns.length > 0 && userId) scopeGroups.push({ columns: userColumns, value: userId });
-      if (companyColumns.length > 0 && companyId) scopeGroups.push({ columns: companyColumns, value: companyId });
-
-      return queryExternalTable(org.dataSourceUrl, table, input.limit, scopeGroups);
-    }
-    case "get_attendance_summary": {
-      const date = startOfDay(input.date);
-      const [attendance, allStaff] = await Promise.all([
-        prisma.attendance.findMany({ where: { date, staff: { organizationId } }, include: { staff: true } }),
-        prisma.staff.findMany({ where: { active: true, organizationId } }),
-      ]);
-      const recorded = new Set(attendance.map((a) => a.staffId));
-      const notRecorded = allStaff.filter((s) => !recorded.has(s.id)).map((s) => s.name);
-      return {
-        date: date.toISOString().slice(0, 10),
-        present: attendance.filter((a) => a.status === "PRESENT").map((a) => a.staff.name),
-        late: attendance.filter((a) => a.status === "LATE").map((a) => a.staff.name),
-        absent: attendance.filter((a) => a.status === "ABSENT").map((a) => a.staff.name),
-        onLeave: attendance.filter((a) => a.status === "ON_LEAVE").map((a) => a.staff.name),
-        workFromHome: attendance.filter((a) => a.status === "WORK_FROM_HOME").map((a) => a.staff.name),
-        notYetRecorded: notRecorded,
-      };
-    }
-    case "get_staff_on_leave": {
-      const date = startOfDay(input.date);
-      const leaves = await prisma.leave.findMany({
-        where: { status: "APPROVED", startDate: { lte: date }, endDate: { gte: date }, staff: { organizationId } },
-        include: { staff: true },
-      });
-      return {
-        date: date.toISOString().slice(0, 10),
-        staffOnLeave: leaves.map((l) => ({ name: l.staff.name, reason: l.reason })),
-      };
-    }
-    case "get_pending_leave_requests": {
-      const leaves = await prisma.leave.findMany({
-        where: { status: "PENDING", staff: { organizationId } },
-        include: { staff: true },
-      });
-      return {
-        pending: leaves.map((l) => ({
-          name: l.staff.name,
-          startDate: l.startDate.toISOString().slice(0, 10),
-          endDate: l.endDate.toISOString().slice(0, 10),
-          reason: l.reason,
-        })),
-      };
-    }
-    case "get_sales_pipeline_summary": {
-      const leads = await prisma.lead.groupBy({
-        by: ["stage"],
-        where: { organizationId },
-        _count: { _all: true },
-        _sum: { value: true },
-      });
-      return {
-        stages: leads.map((l) => ({ stage: l.stage, count: l._count._all, totalValue: Number(l._sum.value ?? 0) })),
-      };
-    }
-    case "get_project_status_summary": {
-      const projects = await prisma.project.findMany({ where: { organizationId }, include: { tasks: true, client: true } });
-      return {
-        projects: projects.map((p) => ({
-          name: p.name,
-          client: p.client ? p.client.name : null,
-          status: p.status,
-          totalTasks: p.tasks.length,
-          doneTasks: p.tasks.filter((t) => t.status === "DONE").length,
-        })),
-      };
-    }
-    case "get_overdue_invoices": {
-      const invoices = await prisma.invoice.findMany({
-        where: { status: { in: ["OVERDUE", "SENT"] }, organizationId },
-        include: { client: true },
-      });
-      return {
-        invoices: invoices.map((i) => ({
-          number: i.number,
-          client: i.client.name,
-          amount: Number(i.amount),
-          status: i.status,
-          dueAt: i.dueAt ? i.dueAt.toISOString().slice(0, 10) : null,
-        })),
-      };
-    }
-    case "search_staff": {
-      const query = String(input.query || "");
-      const staff = await prisma.staff.findMany({
-        where: {
-          organizationId,
-          OR: [
-            { name: { contains: query, mode: "insensitive" } },
-            { department: { contains: query, mode: "insensitive" } },
-            { designation: { contains: query, mode: "insensitive" } },
-          ],
-        },
-      });
-      return {
-        results: staff.map((s) => ({ name: s.name, designation: s.designation, department: s.department, email: s.email })),
-      };
-    }
-    case "search_activity_logs": {
-      const limit = Math.min(Number(input.limit) || 20, 100);
-      const logs = await prisma.activityLog.findMany({
-        where: {
-          organizationId,
-          actorName: input.actorName ? { contains: String(input.actorName), mode: "insensitive" } : undefined,
-          category: input.category || undefined,
-          createdAt: input.since ? { gte: new Date(String(input.since)) } : undefined,
-        },
-        orderBy: { createdAt: "desc" },
-        take: limit,
-      });
-      return {
-        logs: logs.map((l) => ({
-          when: l.createdAt.toISOString(),
-          who: l.actorName,
-          category: l.category,
-          action: l.action,
-          description: l.description,
-        })),
-      };
-    }
-    default:
-      return { error: `Unknown function: ${name}` };
+  if (name !== "query_table") {
+    return { error: `Unknown function: ${name}` };
   }
+
+  const org = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { dataSourceUrl: true, enabledTables: true, userScopeColumns: true, companyScopeColumns: true },
+  });
+  const table = String(input.table || "");
+  if (!org || !org.dataSourceUrl || !org.enabledTables.includes(table)) {
+    return { error: "That table isn't accessible." };
+  }
+
+  const userColumns = (org.userScopeColumns || {})[table] || [];
+  const companyColumns = (org.companyScopeColumns || {})[table] || [];
+
+  const missing = [];
+  if (userColumns.length > 0 && !userId) missing.push("userId");
+  if (companyColumns.length > 0 && !companyId) missing.push("companyId");
+  if (missing.length > 0) {
+    return { error: `This table requires ${missing.join(" and ")} to be passed with the request.` };
+  }
+
+  const scopeGroups = [];
+  if (userColumns.length > 0 && userId) scopeGroups.push({ columns: userColumns, value: userId });
+  if (companyColumns.length > 0 && companyId) scopeGroups.push({ columns: companyColumns, value: companyId });
+
+  return queryExternalTable(org.dataSourceUrl, table, input.limit, scopeGroups);
 }
 
-async function getEnabledToolNames() {
-  const rows = await prisma.assistantToolSetting.findMany();
-  const disabled = new Set(rows.filter((r) => !r.enabled).map((r) => r.toolName));
-  return new Set(FUNCTIONS.map((f) => f.name).filter((name) => !disabled.has(name)));
-}
-
-/** Returns the function list + enabled set for this org — swaps in the external `query_table`
- * function instead of the built-in ERP tools when the org has connected its own database. */
+/** Returns the function list for this org, or { connected: false } if it hasn't connected an
+ * external database — callers should give the caller a plain "not connected" message rather
+ * than opening a tool-less conversation that might otherwise invent an answer. */
 async function getFunctionsForOrg(organizationId) {
   const org = await prisma.organization.findUnique({
     where: { id: organizationId },
     select: { dataSourceUrl: true, enabledTables: true },
   });
 
-  if (org && org.dataSourceUrl && org.enabledTables.length > 0) {
-    const functions = [
-      {
-        name: "query_table",
-        description:
-          "Read rows from this organization's connected external database. Only the tables listed in the enum are accessible — nothing else.",
-        parameters: {
-          type: "object",
-          properties: {
-            table: { type: "string", enum: org.enabledTables, description: "Which table to read from" },
-            limit: { type: "number", description: "Max rows to return, default 50, max 200" },
-          },
-          required: ["table"],
-        },
-      },
-    ];
-    return { functions, enabledToolNames: new Set(["query_table"]), externalTables: org.enabledTables };
+  if (!org || !org.dataSourceUrl || org.enabledTables.length === 0) {
+    return { connected: false };
   }
 
-  const enabledToolNames = await getEnabledToolNames();
-  return { functions: FUNCTIONS, enabledToolNames, externalTables: null };
+  const functions = [
+    {
+      name: "query_table",
+      description:
+        "Read rows from this organization's connected external database. Only the tables listed in the enum are accessible — nothing else.",
+      parameters: {
+        type: "object",
+        properties: {
+          table: { type: "string", enum: org.enabledTables, description: "Which table to read from" },
+          limit: { type: "number", description: "Max rows to return, default 50, max 200" },
+        },
+        required: ["table"],
+      },
+    },
+  ];
+  return { connected: true, functions, externalTables: org.enabledTables };
 }
 
 function agentPrompt(externalTables) {
-  if (externalTables) {
+  if (!externalTables) {
     return `#Role
+You are WAI, speaking to this organization's staff over a live voice call. This organization has not connected a data source, so you have no functions and no data to answer from.
+
+#General Guidelines
+-Be warm, friendly, and professional.
+-If asked anything about the business, say plainly that no data source is connected for this organization yet and an admin needs to connect one — never invent an answer.
+-Keep responses to 1–2 sentences.
+-Do not use markdown formatting.
+
+#Voice-Specific Instructions
+-Speak in a conversational tone—your responses will be spoken aloud.
+-Never interrupt.`;
+  }
+
+  return `#Role
 You are WAI, speaking to this organization's staff over a live voice call, answering from their own connected database.
 You have one function, query_table, which reads rows from these tables: ${externalTables.join(", ")}. ALWAYS call it to answer questions about the business — never guess or invent numbers. If a question needs a table that isn't in that list, say plainly it isn't accessible.
 
@@ -395,29 +211,9 @@ You have one function, query_table, which reads rows from these tables: ${extern
 -Pause after questions to allow for replies.
 -Confirm what the caller said if uncertain.
 -Never interrupt.`;
-  }
-
-  return `#Role
-You are WAI, the AI assistant for the Digitalize ERP, speaking to staff and managers over a live voice call.
-You have real functions available to look up live attendance, leave, sales pipeline, projects, invoices, staff directory and the full activity log — ALWAYS call the relevant function to answer questions about the business. Never guess or invent numbers.
-When calling get_attendance_summary or get_staff_on_leave, do NOT guess or pass a "date" argument unless the caller explicitly names a different day (e.g. "yesterday", "last Monday") — omit the argument entirely to get today's real data, since you do not reliably know the current date yourself.
-
-#General Guidelines
--Be warm, friendly, and professional.
--Speak clearly and naturally in plain language.
--Keep most responses to 1–2 sentences and under 120 characters unless the caller asks for more detail (max: 300 characters).
--Do not use markdown formatting.
--Use varied phrasing; avoid repetition.
--If a question needs data not covered by any function (e.g. lunch breaks, custom fields), say plainly it isn't tracked yet — never invent an answer.
-
-#Voice-Specific Instructions
--Speak in a conversational tone—your responses will be spoken aloud.
--Pause after questions to allow for replies.
--Confirm what the caller said if uncertain.
--Never interrupt.`;
 }
 
-function buildAgentSettings(functions, enabledToolNames, externalTables) {
+function buildAgentSettings(functions, externalTables) {
   return {
     type: "Settings",
     audio: {
@@ -429,13 +225,14 @@ function buildAgentSettings(functions, enabledToolNames, externalTables) {
       listen: { provider: { type: "deepgram", version: "v2", model: "flux-general-en" } },
       think: {
         provider: { type: "google", model: "gemini-3.1-flash-lite" },
-        functions: functions.filter((f) => enabledToolNames.has(f.name)),
+        functions,
         prompt: agentPrompt(externalTables),
       },
       greeting: "Hello! How may I help you?",
     },
   };
 }
+
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
@@ -474,7 +271,7 @@ app.prepare().then(() => {
     nextUpgradeHandler(req, socket, head);
   });
 
-  async function handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId, userId, companyId) {
+  async function handleFunctionCallRequest(msg, upstream, organizationId, userId, companyId) {
     const calls = msg.functions || (msg.function_name ? [msg] : []);
     for (const call of calls) {
       const name = call.name || call.function_name;
@@ -486,14 +283,10 @@ app.prepare().then(() => {
         args = {};
       }
       let result;
-      if (!enabledToolNames.has(name)) {
-        result = { error: "This capability has been disabled by an admin." };
-      } else {
-        try {
-          result = await executeTool(name, args, organizationId, userId, companyId);
-        } catch (err) {
-          result = { error: String(err && err.message ? err.message : err) };
-        }
+      try {
+        result = await executeTool(name, args, organizationId, userId, companyId);
+      } catch (err) {
+        result = { error: String(err && err.message ? err.message : err) };
       }
       const response = {
         type: "FunctionCallResponse",
@@ -515,8 +308,10 @@ app.prepare().then(() => {
       return;
     }
 
-    // Snapshot admin-configured access for the lifetime of this call.
-    const { functions, enabledToolNames, externalTables } = await getFunctionsForOrg(organizationId);
+    // Snapshot the org's data-source config for the lifetime of this call.
+    const config = await getFunctionsForOrg(organizationId);
+    const functions = config.connected ? config.functions : [];
+    const externalTables = config.connected ? config.externalTables : null;
 
     const upstream = new WebSocket(DEEPGRAM_AGENT_URL, {
       headers: { Authorization: `token ${apiKey}` },
@@ -524,7 +319,7 @@ app.prepare().then(() => {
 
     let pending = [];
     upstream.on("open", () => {
-      upstream.send(JSON.stringify(buildAgentSettings(functions, enabledToolNames, externalTables)));
+      upstream.send(JSON.stringify(buildAgentSettings(functions, externalTables)));
       for (const { data, isBinary } of pending) upstream.send(data, { binary: isBinary });
       pending = [];
     });
@@ -546,7 +341,7 @@ app.prepare().then(() => {
           msg = null;
         }
         if (msg && msg.type === "FunctionCallRequest") {
-          handleFunctionCallRequest(msg, upstream, enabledToolNames, organizationId, userId, companyId).catch((err) =>
+          handleFunctionCallRequest(msg, upstream, organizationId, userId, companyId).catch((err) =>
             console.error("Function call handling error:", err)
           );
           return; // don't forward raw function-call plumbing to the browser

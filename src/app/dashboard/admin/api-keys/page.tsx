@@ -31,9 +31,9 @@ export default async function ApiKeysPage() {
       <div>
         <h1 className="text-lg font-semibold text-white">WAI Embed Plugin</h1>
         <p className="max-w-2xl text-sm text-zinc-500">
-          Issue an API key to embed the WAI chat assistant into another website. It still answers from
-          this Digitalize instance&apos;s data, governed by the same permissions set in{" "}
-          <span className="text-zinc-300">WAI Data Access</span>.
+          Issue an API key to embed the WAI chat assistant into another website. It answers from this
+          organization&apos;s connected database, governed by whatever tables are allowed in{" "}
+          <span className="text-zinc-300">WAI Data Source</span>.
         </p>
       </div>
 

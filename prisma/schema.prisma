@@ -255,12 +255,6 @@ model ChatMessage {
   createdAt DateTime @default(now())
 }
 
-model AssistantToolSetting {
-  toolName  String   @id
-  enabled   Boolean  @default(true)
-  updatedAt DateTime @updatedAt
-}
-
 model ApiKey {
   id             String       @id @default(cuid())
   organizationId String // the org that issued/owns this key for attribution — irrelevant to access when isPlatformKey is true

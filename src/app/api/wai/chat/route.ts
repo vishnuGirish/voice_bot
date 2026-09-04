@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSession } from "@/lib/auth";
 import { getToolDefinitionsForOrg, executeTool } from "@/lib/wai/tools";
-import { getEnabledToolNames } from "@/lib/wai/toolRegistry";
 import { resolveApiKeyAccess } from "@/lib/wai/apiKeys";
 import { prisma } from "@/lib/db";
 
@@ -16,9 +15,8 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
 
-const ERP_SYSTEM_PROMPT = `You are WAI, the friendly AI assistant embedded in the Digitalize ERP dashboard.
-You help staff and managers quickly find answers about attendance, leave, sales pipeline, projects, invoices, and the full activity log (audit trail of every action taken in the system) by using the tools available to you — never guess numbers, always call a tool.
-Answer concisely, in the same language the user asked in (including Tamil or Malayalam if they write in those languages). Use short lists or a couple of sentences, not long essays. If a query needs no tool (e.g. greetings), just respond directly. If a question asks about something that isn't tracked by any tool (e.g. lunch breaks, custom fields), say plainly that it isn't tracked yet — never invent an answer.`;
+const NO_DATA_SOURCE_REPLY =
+  "No data source is connected for this organization. An admin needs to connect one from WAI Data Source before I can answer anything.";
 
 function externalSystemPrompt(enabledTables: string[]) {
   return `You are WAI, the assistant for this organization, answering questions from their own connected database.
@@ -73,16 +71,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const config = await getToolDefinitionsForOrg(organizationId);
+  if (!config.connected) {
+    return json({ reply: NO_DATA_SOURCE_REPLY });
+  }
+
   if (!process.env.ANTHROPIC_API_KEY) {
     return json({ error: "ANTHROPIC_API_KEY is not configured on the server." }, { status: 500 });
   }
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-  const { tools: allToolDefs, externalTables } = await getToolDefinitionsForOrg(organizationId);
-  const enabledTools = externalTables ? new Set(["query_table"]) : await getEnabledToolNames();
-  const availableTools = allToolDefs.filter((t) => enabledTools.has(t.name));
-  const systemPrompt = externalTables ? externalSystemPrompt(externalTables) : ERP_SYSTEM_PROMPT;
+  const systemPrompt = externalSystemPrompt(config.externalTables);
 
   const conversation: Anthropic.MessageParam[] = messages.map((m) => ({
     role: m.role,
@@ -97,7 +96,7 @@ export async function POST(req: NextRequest) {
         model: "claude-sonnet-4-5-20250929",
         max_tokens: 1024,
         system: systemPrompt,
-        tools: availableTools,
+        tools: config.tools,
         messages: conversation,
       });
 
@@ -118,13 +117,6 @@ export async function POST(req: NextRequest) {
 
       const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
         toolUseBlocks.map(async (block) => {
-          if (!enabledTools.has(block.name)) {
-            return {
-              type: "tool_result" as const,
-              tool_use_id: block.id,
-              content: JSON.stringify({ error: "This capability has been disabled by an admin." }),
-            };
-          }
           const result = await executeTool(block.name, block.input as Record<string, unknown>, organizationId, userId, companyId);
           return {
             type: "tool_result" as const,
